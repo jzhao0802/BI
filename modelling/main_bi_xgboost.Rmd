@@ -12,8 +12,15 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Set up
 
 ```{r}
-#setwd("C:/Users/npoh/Documents/Git/projects/bi/modelling")
-#setwd("F:/Norman/BI_IPF2017/modelling")
+run_on_server <- TRUE
+load_data_with_config <- TRUE
+
+if (run_on_server) {
+  setwd("F:/Norman/BI_IPF2017/modelling") 
+} else {
+  setwd("C:/Users/npoh/Documents/Git/projects/bi/modelling")
+}
+
 library(palab)
 library(palabmod)
 library(ggplot2)
@@ -27,7 +34,6 @@ library(mlr)
 
 ## List files -- on local git
 ```{r}
-run_on_server <- TRUE
 
 if (run_on_server) {
   data_dir = ""
@@ -46,7 +52,7 @@ We need to process the file bi_features_var_config.csv because it does not provi
 
 ```{r}
 
-if (run_on_server) {
+if (load_data_with_config) {
   config <- read_csv("bi_features_var_config.csv")
 } else {
   
