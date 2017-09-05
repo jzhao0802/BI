@@ -1,0 +1,353 @@
+---
+title: "bi exploration"
+author: "Norman Poh"
+date: "1 September 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up
+
+```{r}
+setwd("C:/Users/npoh/Documents/Git/projects/bi/modelling")
+library(palab)
+library(palabmod)
+library(ggplot2)
+library(tidyverse)
+library(stringr)
+library(lubridate)
+
+```
+
+## Help
+```{r}
+all_packages <- ls(getNamespace("palab"))
+all_packages
+```
+
+
+## List files
+```{r}
+data_dir = "../data/norman_subset/"
+files <- list.files(data_dir)
+files
+```
+
+## Load the new predictors as they were found useful
+```{r}
+new_predictor_list <- read_csv("newpredictorList1.csv")
+new_predictor_list$type <- as.factor(new_predictor_list$type)
+
+```
+## Generating a variable configuration file for the positive and negative samples
+```{r}
+var_config_generator(input_csv = paste0(data_dir, files[1]),
+                     prefix = "bi_",
+                     output_dir = ".")
+
+var_config_generator(input_csv = paste0(data_dir, files[3]),
+                     prefix = "bi_neg_",
+                     output_dir = ".")
+
+```
+## Rectify the variable configuration file
+We need to process the file bi_var_config.csv because it does not provide the correct variable type so we progmatically correct for the output in the following ways:
+
+```{r}
+config_pos <- read_csv("bi_var_config.csv")
+
+# 1. Add key -- otherwise the file won't load
+config_pos$Type[ str_detect(config_pos$Column, "PATIENT_ID") ] = "key"
+
+# 2. Change the dates to others
+### Just testing matching <- str_view(config_pos$Column,"_DT", match=TRUE)
+matching <- str_detect(config_pos$Column,"_DT")
+config_pos$Type[matching]="other"
+write_csv(config_pos,"bi_var_config.csv")
+
+# 3. Check the variables that are included according to the new_predictor_list
+n <- length(new_predictor_list$Variable_name)
+stat <- rep(0,n)
+
+# Find if the new predictors are in the original column
+is_included <- logical(length(config_pos$Column))
+for(i in 1:n) {
+  matching <- str_detect(config_pos$Column,new_predictor_list$Variable_name[i])
+  #str_view(config_pos$Column,new_predictor_list$Variable_name[1])
+  stat[i]=sum(matching)
+  is_included <- is_included | matching
+}
+```
+
+## It seems that their sums are not equal -- see below so there might be duplicates in the new_predictor list but we ignore this for now
+```{r}
+sum(is_included)
+sum(stat)
+```
+## Filter the columns to include the variables according to the new predictor list only
+
+```{r}
+config_pos_included <- config_pos[is_included,]
+View(config_pos_included)
+write_csv(config_pos_included,"bi_new_predictor_var_config.csv")
+```
+
+## We process the negative samples slightly differently
+```{r}
+config_neg <- read_csv("bi_neg_var_config.csv")
+# 1. Add key -- otherwise the file won't load
+config_neg$Type[ str_detect(config_neg$Column, "NON_IPF_PATIENT") ] = "key"
+
+# 2. Change the dates to others
+### Just testing matching <- str_view(config_pos$Column,"_DT", match=TRUE)
+matching <- str_detect(config_neg$Column,"_DT")
+config_neg$Type[matching]="other"
+write_csv(config_neg,"bi_neg_var_config.csv")
+```
+
+## Analyse the negative samples
+```{r}
+
+setdiff(config_neg$Column, config_pos$Column )
+setdiff(config_pos$Column, config_neg$Column )
+
+
+```
+## We have the following variables and here's what we do with them 
+### keep the variables (but not used as predictor)
+Keep the foreign key: IPF_PATIENT
+
+### delete -- check with Orla
+IPF_PATIENT_AGE
+IPF_PATIENT_GENDER
+NON_IPF_INDEX_2
+IDX_LATE_LOOK_BACK_DAYS
+
+### rename -- but are we going to use these variables as predictors? (we can rename these after loading)
+NON_IPF_PATIENT -> PATIENT_ID
+NON_IPF_PAT_AGE -> PATIENT_AGE
+NON_IPF_PAT_GENDER -> PATIENT_GENDER
+NON_IPF_LOOKBACK_2 -> LOOKBACK_DAYS
+NON_ASTHMA_COPD_FLAG -> ASTHMA_COPD_FLAG
+NON_12_MONTHS -> IN_12_MONTHS
+NON_IN_24_MONTHS -> IN_24_MONTHS
+NON_IN_36_MONTHS -> IN_36_MONTHS
+
+### Variables that are present in the positive samples but missing in the negative samples -- so these are not predictors and should be deleted -- need to confirm with Orla
+ [14] "NBR_PRED_NON_PRED_SET_TO_Y" 
+ [15] "LVL1_NOT_PRED_FLAG"           "LVL1_NOT_PRED_M_S_DT"        
+ [17] "LVL1_NOT_PRED_CLM_CNT"        "LVL1_NOT_PRED_VST_CNT"       
+ [19] "LVL1_NOT_PRED_AVG_RXDX"       "LVL2_IPF_DIAG_FLAG"          
+ [21] "LVL2_IPF_DIAG_M_S_DT"         "LVL2_IPF_DIAG_CLM_CNT"       
+ [23] "LVL2_IPF_DIAG_VST_CNT"        "LVL2_IPF_DIAG_AVG_RXDX"      
+ [25] "LVL2_RFOPC_FLAG"              "LVL2_RFOPC_M_S_DT"           
+ [27] "LVL2_RFOPC_CLM_CNT"           "LVL2_RFOPC_VST_CNT"          
+ [29] "LVL2_RFOPC_AVG_RXDX"          "LVL2_IPF_RPD_KC_FLAG"        
+ [31] "LVL2_IPF_RPD_KC_M_S_DT"       "LVL2_IPF_RPD_KC_CLM_CNT"     
+ [33] "LVL2_IPF_RPD_KC_VST_CNT"      "LVL2_IPF_RPD_KC_AVG_RXDX"    
+ [35] "LVL2_IPF_RPD_I_FLAG"          "LVL2_IPF_RPD_I_M_S_DT"       
+ [37] "LVL2_IPF_RPD_I_CLM_CNT"       "LVL2_IPF_RPD_I_VST_CNT"      
+ [39] "LVL2_IPF_RPD_I_AVG_RXDX"      "LVL2_OL_IPF_TRT_FLAG"        
+ [41] "LVL2_OL_IPF_TRT_M_S_DT"       "LVL2_OL_IPF_TRT_CLM_CNT"     
+ [43] "LVL2_OL_IPF_TRT_VST_CNT"      "LVL2_OL_IPF_TRT_AVG_RXDX"    
+ [45] "LVL3_HR_CT_SC_FLAG"           "LVL3_HR_CT_SC_M_S_DT"        
+ [47] "LVL3_HR_CT_SC_CLM_CNT"        "LVL3_HR_CT_SC_VST_CNT"       
+ [49] "LVL3_HR_CT_SC_AVG_RXDX"       "LVL3_LUNG_BIOP_FLAG"         
+ [51] "LVL3_LUNG_BIOP_M_S_DT"        "LVL3_LUNG_BIOP_CLM_CNT"      
+ [53] "LVL3_LUNG_BIOP_VST_CNT"       "LVL3_LUNG_BIOP_AVG_RXDX"     
+ [55] "LVL3_EH_MC_FLAG"              "LVL3_EH_MC_M_S_DT"           
+ [57] "LVL3_EH_MC_CLM_CNT"           "LVL3_EH_MC_VST_CNT"          
+ [59] "LVL3_EH_MC_AVG_RXDX"          "LVL3_RA_FLAG"                
+ [61] "LVL3_RA_M_S_DT"               "LVL3_RA_CLM_CNT"             
+ [63] "LVL3_RA_VST_CNT"              "LVL3_RA_AVG_RXDX"            
+ [65] "LVL3_SICCA_FLAG"              "LVL3_SICCA_M_S_DT"           
+ [67] "LVL3_SICCA_CLM_CNT"           "LVL3_SICCA_VST_CNT"          
+ [69] "LVL3_SICCA_AVG_RXDX"          "LVL3_SLE_FLAG"               
+ [71] "LVL3_SLE_M_S_DT"              "LVL3_SLE_CLM_CNT"            
+ [73] "LVL3_SLE_VST_CNT"             "LVL3_SLE_AVG_RXDX"           
+ [75] "LVL3_SYS_SCLER_FLAG"          "LVL3_SYS_SCLER_M_S_DT"       
+ [77] "LVL3_SYS_SCLER_CLM_CNT"       "LVL3_SYS_SCLER_VST_CNT"      
+ [79] "LVL3_SYS_SCLER_AVG_RXDX"      "LVL3_LI_SAR_FLAG"            
+ [81] "LVL3_LI_SAR_M_S_DT"           "LVL3_LI_SAR_CLM_CNT"         
+ [83] "LVL3_LI_SAR_VST_CNT"          "LVL3_LI_SAR_AVG_RXDX"        
+ [85] "LVL3_LI_SCLER_FLAG"           "LVL3_LI_SCLER_M_S_DT"        
+ [87] "LVL3_LI_SCLER_CLM_CNT"        "LVL3_LI_SCLER_VST_CNT"       
+ [89] "LVL3_LI_SCLER_AVG_RXDX"       "LVL3_PI_FIBRO_FLAG"          
+ [91] "LVL3_PI_FIBRO_M_S_DT"         "LVL3_PI_FIBRO_CLM_CNT"       
+ [93] "LVL3_PI_FIBRO_VST_CNT"        "LVL3_PI_FIBRO_AVG_RXDX"      
+ [95] "LVL3_RHEU_HD_FLAG"            "LVL3_RHEU_HD_M_S_DT"         
+ [97] "LVL3_RHEU_HD_CLM_CNT"         "LVL3_RHEU_HD_VST_CNT"        
+ [99] "LVL3_RHEU_HD_AVG_RXDX"        "LVL3_RHEU_PNEU_FLAG"         
+[101] "LVL3_RHEU_PNEU_M_S_DT"        "LVL3_RHEU_PNEU_CLM_CNT"      
+[103] "LVL3_RHEU_PNEU_VST_CNT"       "LVL3_RHEU_PNEU_AVG_RXDX"     
+[105] "LVL3_RHEU_LUNG_FLAG"          "LVL3_RHEU_LUNG_M_S_DT"       
+[107] "LVL3_RHEU_LUNG_CLM_CNT"       "LVL3_RHEU_LUNG_VST_CNT"      
+[109] "LVL3_RHEU_LUNG_AVG_RXDX"      "LVL3_SARCOID_FLAG"           
+[111] "LVL3_SARCOID_M_S_DT"          "LVL3_SARCOID_CLM_CNT"        
+[113] "LVL3_SARCOID_VST_CNT"         "LVL3_SARCOID_AVG_RXDX"       
+[115] "LVL3_PNEU_OH_FLAG"            "LVL3_PNEU_OH_M_S_DT"         
+[117] "LVL3_PNEU_OH_CLM_CNT"         "LVL3_PNEU_OH_VST_CNT"        
+[119] "LVL3_PNEU_OH_AVG_RXDX"        "LVL3_ACUT_I_PNEU_FLAG"       
+[121] "LVL3_ACUT_I_PNEU_M_S_DT"      "LVL3_ACUT_I_PNEU_CLM_CNT"    
+[123] "LVL3_ACUT_I_PNEU_VST_CNT"     "LVL3_ACUT_I_PNEU_AVG_RXDX"   
+[125] "LVL3_CRYP_ORG_PNEU_FLAG"      "LVL3_CRYP_ORG_PNEU_M_S_DT"   
+[127] "LVL3_CRYP_ORG_PNEU_CLM_CNT"   "LVL3_CRYP_ORG_PNEU_VST_CNT"  
+[129] "LVL3_CRYP_ORG_PNEU_AVG_RXDX"  "LVL3_DESQ_I_PNEU_FLAG"       
+[131] "LVL3_DESQ_I_PNEU_M_S_DT"      "LVL3_DESQ_I_PNEU_CLM_CNT"    
+[133] "LVL3_DESQ_I_PNEU_VST_CNT"     "LVL3_DESQ_I_PNEU_AVG_RXDX"   
+[135] "LVL3_ID_I_PNEU_FLAG"          "LVL3_ID_I_PNEU_M_S_DT"       
+[137] "LVL3_ID_I_PNEU_CLM_CNT"       "LVL3_ID_I_PNEU_VST_CNT"      
+[139] "LVL3_ID_I_PNEU_AVG_RXDX"      "LVL3_ID_I_PNEU_NOS_FLAG"     
+[141] "LVL3_ID_I_PNEU_NOS_M_S_DT"    "LVL3_ID_I_PNEU_NOS_CLM_CNT"  
+[143] "LVL3_ID_I_PNEU_NOS_VST_CNT"   "LVL3_ID_I_PNEU_NOS_AVG_RXDX" 
+[145] "LVL3_ID_LYM_I_PNEU_FLAG"      "LVL3_ID_LYM_I_PNEU_M_S_DT"   
+[147] "LVL3_ID_LYM_I_PNEU_CLM_CNT"   "LVL3_ID_LYM_I_PNEU_VST_CNT"  
+[149] "LVL3_ID_LYM_I_PNEU_AVG_RXDX"  "LVL3_ID_NS_PNEU_FLAG"        
+[151] "LVL3_ID_NS_PNEU_M_S_DT"       "LVL3_ID_NS_PNEU_CLM_CNT"     
+[153] "LVL3_ID_NS_PNEU_VST_CNT"      "LVL3_ID_NS_PNEU_AVG_RXDX"    
+[155] "LVL3_RESP_BRON_I_LD_FLAG"     "LVL3_RESP_BRON_I_LD_M_S_DT"  
+[157] "LVL3_RESP_BRON_I_LD_CLM_CNT"  "LVL3_RESP_BRON_I_LD_VST_CNT" 
+[159] "LVL3_RESP_BRON_I_LD_AVG_RXDX" "LVL3_AZATHIO_FLAG"           
+[161] "LVL3_AZATHIO_M_S_DT"          "LVL3_AZATHIO_CLM_CNT"        
+[163] "LVL3_AZATHIO_VST_CNT"         "LVL3_AZATHIO_AVG_RXDX"       
+[165] "LVL3_COLCH_FLAG"              "LVL3_COLCH_M_S_DT"           
+[167] "LVL3_COLCH_CLM_CNT"           "LVL3_COLCH_VST_CNT"          
+[169] "LVL3_COLCH_AVG_RXDX"          "LVL3_CYCLOPH_FLAG"           
+[171] "LVL3_CYCLOPH_M_S_DT"          "LVL3_CYCLOPH_CLM_CNT"        
+[173] "LVL3_CYCLOPH_VST_CNT"         "LVL3_CYCLOPH_AVG_RXDX"       
+[175] "LVL3_CYCLOSP_FLAG"            "LVL3_CYCLOSP_M_S_DT"         
+[177] "LVL3_CYCLOSP_CLM_CNT"         "LVL3_CYCLOSP_VST_CNT"        
+[179] "LVL3_CYCLOSP_AVG_RXDX"        "LVL3_MYCOPH_FLAG"            
+[181] "LVL3_MYCOPH_M_S_DT"           "LVL3_MYCOPH_CLM_CNT"         
+[183] "LVL3_MYCOPH_VST_CNT"          "LVL3_MYCOPH_AVG_RXDX"        
+[185] "LVL3_N_ACETL_FLAG"            "LVL3_N_ACETL_M_S_DT"         
+[187] "LVL3_N_ACETL_CLM_CNT"         "LVL3_N_ACETL_VST_CNT"        
+[189] "LVL3_N_ACETL_AVG_RXDX"        "LVL3_SILDEN_FLAG"            
+[191] "LVL3_SILDEN_M_S_DT"           "LVL3_SILDEN_CLM_CNT"         
+[193] "LVL3_SILDEN_VST_CNT"          "LVL3_SILDEN_AVG_RXDX"       
+
+## Load the negative data
+```{r}
+data_neg <- read_transform(
+  input_csv = paste0(data_dir, files[3]), #"Non_IPF_Asthma_COPD_Cohort.csv"
+  var_config_csv = "bi_neg_var_config.csv",
+  read_key_as_double = TRUE
+)
+colnames(data_neg$data)
+View(data_neg$data)
+```
+
+
+## Variables in the negative data set but not in the positive data set
+```{r}
+#setdiff(config_pos_included$Column, config_neg$Column)
+additional_neg_colnames <- setdiff(config_neg$Column, config_pos_included$Column)
+
+data_neg$data <- data_neg$data %>% rename(NON_IPF_PATIENT = PATIENT_ID)
+
+data_neg$data <- dplyr::rename(data_neg$data, NON_IPF_PAT_AGE = PATIENT_AGE)
+
+data_neg$data <- rename(data_neg$data, NON_IPF_PAT_AGE = PATIENT_AGE)
+data_neg$data <- rename(data_neg$data, NON_IPF_PAT_GENDER = PATIENT_GENDER)
+data_neg$data <- rename(data_neg$data, NON_IPF_LOOKBACK_2 = LOOKBACK_DAYS)
+data_neg$data <- rename(data_neg$data, NON_ASTHMA_COPD_FLAG = ASTHMA_COPD_FLAG)
+data_neg$data <- rename(data_neg$data, NON_12_MONTHS = IN_12_MONTHS)
+data_neg$data <- rename(data_neg$data, NON_IN_24_MONTHS = IN_24_MONTHS)
+data_neg$data <- rename(data_neg$data, NON_IN_36_MONTHS = IN_36_MONTHS)
+
+colnames(data_neg$data)
+data_neg_cleaned <- select(data_neg$data, -match( additional_neg_colnames) )
+
+#config_neg$Column[: -c(1)]
+```
+
+## Load the positive data
+```{r}
+data_pos <- read_transform(
+  input_csv = paste0(data_dir, files[1]),
+  #var_config_csv = "bi_new_predictor_var_config.csv",
+  var_config_csv = "bi_var_config.csv",
+  read_key_as_double = TRUE
+)
+colnames(data_pos$data)
+View(data_pos$data)
+```
+## checking
+```{r}
+
+
+# please input only a dataframe full of dates into this function:
+create_date_diffs <- function(input, index_col = "index_date") {
+  #input is the data frame
+  date_cols <- input[, -which(colnames(input) == index_col)]
+  
+  date_diffs <- as.data.frame(sapply(date_cols, function(x) { 
+    input[[index_col]] - x
+    
+  }))
+  
+  return(date_diffs)
+}
+
+datediff_ <- (dmy(data_pos$data$FIRST_IPF_DIAG_FLAG) 
+  - dmy(data_pos$data$FIRST_IPF_EXPOSURE_DT)  )
+
+data_working <- select(data_pos$data, ends_with("_DT"), FIRST_IPF_DIAG_FLAG)
+data_working <- as.data.frame(  lapply(data_working, dmy) )
+
+# data_format <- as.data.frame( 
+#   lapply(data_working, function(x) { ifelse(!is.na(x), dmy(as.character( x )), NA) }) 
+# ) 
+# CTRL SHIFT C
+
+# Calculate the date difference
+datediff_pos <-  as.data.frame(  lapply(data_working, 
+                                         function(x) {dmy(data_pos$data$FIRST_IPF_DIAG_FLAG) - x }) )
+
+stat <- t( as_tibble( lapply(datediff_pos, function(x) {sum(is.na(x)) } ) ) )
+
+# data_pos$data %>% mutate_if(str_detect(colnames(data_pos$data), "_DT")
+
+ggplot(data_pos$data, aes(x=LOOKBACK_DAYS)) + geom_histogram(binwidth=.5)
+
+
+```
+
+## Univariate stats
+```{r}
+univar_results <- univariate_stats(input = df$data,
+                                   var_config = "bi_var_config.csv",
+                                   vargt0 = FALSE)
+View(univar_results$cat)
+```
+
+## check
+```{r}
+p<-ggplot(data=univar_results$cat, aes(x=Variable, y=`Missing, prop`)) +
+  geom_bar(stat="identity")
+p + coord_flip()
+```
+
+## check
+```{r}
+p<-ggplot(data=univar_results$numerical, aes(x=Variable, y=`Missing, prop`)) +
+  geom_bar(stat="identity")
+p + coord_flip()
+univar_results$numerical$Variable
+```
+
+
+## Load the negative data
+```{r}
+df_neg <- read_transform(
+  input_csv = paste0(data_dir, files[2]),
+  var_config_csv = "bi_var_config.csv",
+  #missing_values = "-99, -999",
+  read_key_as_double = TRUE
+)
+```
+
+##

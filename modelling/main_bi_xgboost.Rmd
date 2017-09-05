@@ -1,0 +1,236 @@
+---
+title: "BI-IPF with xgboost"
+author: "Norman Poh"
+date: "4 September 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up
+
+```{r}
+setwd("C:/Users/npoh/Documents/Git/projects/bi/modelling")
+library(palab)
+library(palabmod)
+library(ggplot2)
+library(tidyverse)
+library(stringr)
+library(lubridate)
+
+```
+
+
+## List files
+```{r}
+data_dir = "../data/features/"
+data_dir = "../data/features_small/"
+
+files <- list.files(data_dir)
+files
+```
+
+
+## Generating a variable configuration file for the samples
+```{r}
+var_config_generator(input_csv = paste0(data_dir, files[2]),
+                     prefix = "bi_features_",
+                     output_dir = ".")
+```
+
+## Rectify the variable configuration file
+We need to process the file bi_features_var_config.csv because it does not provide the correct variable type so we programatically correct for the output in the following ways:
+
+```{r}
+config <- read_csv("bi_features_var_config.csv")
+
+# 1. Add key -- otherwise the file won't load
+config$Type[ str_detect(config$Column, "^patient_id$") ] = "key"
+
+# We shall not carry out step 2 below because xgboost can only take numerical data !!!
+# 2. Change the flag to categorical 
+# matching <- str_detect(config$Column,"_FLAG$")
+# config$Type[matching]="categorical"
+# 
+# matching <- str_detect(config$Column,"_BEFORE$")
+# config$Type[matching]="categorical"
+# 
+# matching <- str_detect(config$Column,"_AFTER$")
+# config$Type[matching]="categorical"
+# 
+# matching <- str_detect(config$Column,"^label$")
+# config$Type[matching]="categorical"
+# 
+write_csv(config,"bi_features_var_config.csv")
+
+```
+
+## Generating a variable configuration file for the samples
+```{r}
+bi <- read_transform(
+  input_csv = paste0(data_dir, files[2]),
+  var_config_csv = "bi_features_var_config.csv",
+  read_key_as_double = FALSE
+)
+```
+
+## Just checking
+```{r}
+colnames(bi$data)
+
+sum(bi$data$label)
+nrow((bi$data))
+
+```
+
+
+## Load the new predictors as they were found useful
+```{r}
+new_predictor_list <- read_csv("newpredictorList1.csv")
+new_predictor_list$type <- as.factor(new_predictor_list$type)
+```
+
+## Check which variables are included according to the new_predictor_list
+```{r}
+n <- length(new_predictor_list$Variable_name)
+stat <- rep(0,n)
+
+# Find if the new predictors are in the original column
+is_included <- logical(length(config$Column))
+for(i in 1:n) {
+  matching <- str_detect(config$Column,new_predictor_list$Variable_name[i])
+  #str_view(config$Column,new_predictor_list$Variable_name[1])
+  stat[i]=sum(matching)
+  is_included <- is_included | matching
+}
+```
+
+## It seems that their sums are not equal -- see below so there might be duplicates in the new_predictor list but we ignore this for now
+```{r}
+sum(is_included)
+sum(stat)
+```
+
+## List variables that should not have been included
+```{r}
+config$Column[is_included == FALSE]
+```
+
+The results look reasonable
+ 
+## now load the negative samples
+```{r}
+bi_neg <- read_transform(
+  input_csv = paste0(data_dir, files[1]),
+  var_config_csv = "bi_features_var_config.csv",
+  read_key_as_double = FALSE
+)
+```
+
+## Checking
+```{r}
+sum(bi_neg$data$label == 0)
+nrow(bi_neg$data)
+
+# There should be no difference here
+setdiff(names(bi$data), names(bi_neg$data))
+setdiff(names(bi_neg$data), names(bi$data))
+```
+
+## Combine them
+
+```{r}
+colnames(bi$data)
+new_predictor_list$Variable_name
+```
+
+
+## Combine them
+```{r}
+dat <-rbind(bi$data, bi_neg$data)
+```
+
+
+## List variables that should not have been included
+```{r}
+config$Column[is_included == FALSE]
+
+```
+
+## Analyse variables that should not have been included before deleting them -- I want to know why these variables are not good
+
+```{r}
+config$Column[is_included == FALSE]
+
+ggplot(dat, aes(SYMP_CNT, group=label, fill=label)) + 
+     geom_histogram(binwidth=0.5,  alpha = .2)
+
+ggplot(dat, aes(SYMP_CNT, group=label, fill=label)) + 
+  geom_density(alpha=.5) 
+
+# Examine the lookback days
+ggplot(dat, aes(LOOKBACK_DAYS, group=label, fill=label)) + 
+  geom_density(alpha=.5) 
+
+dat$int_O_PULM_F_T_6_M_WALK
+ggplot(dat, aes(int_O_PULM_F_T_6_M_WALK, group=label, fill=label)) + 
+  geom_density(alpha=.5) 
+
+dat_<-subset(dat, int_O_PULM_F_T_6_M_WALK !=0)
+ggplot(dat_, aes(int_O_PULM_F_T_6_M_WALK, group=label, fill=label)) + geom_density(alpha=.5) 
+
+```
+## ml-R complained because data set contains NA so we need to remove them
+```{r}
+  
+matches <- as.factor(dat$matched_patient_id)
+sum(is.na(dat$matched_patient_id))
+
+dat2 <- dat %>% filter(!is.na(matched_patient_id))
+matches <- as.factor(dat2$matched_patient_id)
+sum(is.na(dat2$matched_patient_id))
+```
+## run xgboost as is
+
+```{r}
+dat2 <- dat2 %>% select(-one_of("matched_patient_id"))
+
+ids <- utils_get_ids(dat2, config)
+df <- utils_get_variables(dat2, config)
+
+# There should be only patient_id (the key)
+setdiff(colnames(dat), colnames(df))
+
+# Setup dataset - for imputing missing values have a look at the vignette
+target = "label"
+
+#dat2 <- dat %>% select(-one_of("label"))
+
+dataset <- makeClassifTask(id="BC", data=df, 
+                           target=target,
+                           positive=1,blocking=matches)
+
+# make learner
+lrn_xgb <- makeLearner(cl = "classif.xgboost", predict.type = "prob")
+
+# make resample object
+rdesc <- makeResampleDesc(method = "CV", iters = 3)
+
+# resample
+res <- resample(learner = lrn_xgb, task = dataset, resampling = rdesc)
+
+# make pr curve:
+pr_curve <- perf_binned_perf_curve(pred = res$pred)
+
+# train model
+xgb_model <- train(learner = lrn_xgb,
+                   task = dataset)
+
+# make predictions
+pred <- predict(object = xgb_model, newdata = cars_num)
+
+pred$threshold
+
+```
