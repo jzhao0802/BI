@@ -1,0 +1,25 @@
+---
+title: "Install palab and palabmod"
+author: "Norman Poh"
+date: "5 September 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Installation
+
+```{r}
+# We need to install all the missing packages first
+
+install.packages(c('lazyeval', 'forcats','dplyr', 'readr', 'tidyr', 'broom', 'lazyeval', 'forcats', 'lubridate', 'iterators', 'snow', 'doSNOW', 'foreach', 'gtools', 'mosaic', 'purrr', 'rms', 'stringr'))
+install.packages("mosaic")
+install.packages("htmlTable")
+install.packages("zoo")
+install.packages("F:/Norman/Git/palab/palab-2017-05-15.tar.gz", repos = NULL)
+install.packages( c('mlr', 'BBmisc', 'ROCR', 'tidyverse', 'plotmo', 'parallelMap', 'rattle', 'rpart.plot', 'fastcluster', 'yakmoR', 'fields', 'hash') )
+install.packages("F:/Norman/Git/palabmod/builds/palabmod_1.0.2.tar.gz", repos = NULL)
+
+```

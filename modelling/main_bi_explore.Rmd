@@ -12,7 +12,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Set up
 
 ```{r}
-setwd("C:/Users/npoh/Documents/Git/projects/bi/modelling")
+#setwd("C:/Users/npoh/Documents/Git/projects/bi/modelling")
+setwd("F:/Norman/BI_IPF2017/modelling")
 library(palab)
 library(palabmod)
 library(ggplot2)
@@ -23,11 +24,19 @@ library(lubridate)
 ```
 
 
-## List files
+## List files -- on local git
 ```{r}
 data_dir = "../data/features/"
 files <- list.files(data_dir)
 files
+```
+## List files -- on server
+```{r}
+data_dir = ""
+files <- c(
+  "F:/Hui/Project_2016/BI_IPF_2016/04_Summary/004_data/all_features_neg.csv", 
+  "F:/Hui/Project_2016/BI_IPF_2016/04_Summary/004_data/all_features_pos.csv")
+
 ```
 
 
