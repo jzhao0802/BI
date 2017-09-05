@@ -23,3 +23,8 @@ install.packages( c('mlr', 'BBmisc', 'ROCR', 'tidyverse', 'plotmo', 'parallelMap
 install.packages("F:/Norman/Git/palabmod/builds/palabmod_1.0.2.tar.gz", repos = NULL)
 
 ```
+
+## Install additional libraries
+```{r}
+install.packages("xgboost")
+```

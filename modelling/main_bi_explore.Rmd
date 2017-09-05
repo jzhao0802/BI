@@ -83,6 +83,15 @@ bi <- read_transform(
 )
 ```
 
+## do the subsetting here
+```{r}
+idlist <- read_csv("../data/idlist.txt")
+nrow(bi$data)
+nrow(idlist)
+
+```
+
+
 ## Just checking
 ```{r}
 colnames(bi$data)

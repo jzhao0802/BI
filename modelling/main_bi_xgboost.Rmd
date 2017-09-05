@@ -30,6 +30,7 @@ data_dir = "../data/features/"
 files <- list.files(data_dir)
 files
 ```
+
 ## List files -- on server
 ```{r}
 data_dir = ""
@@ -191,7 +192,7 @@ dat2 <- dat %>% filter(!is.na(matched_patient_id))
 matches <- as.factor(dat2$matched_patient_id)
 sum(is.na(dat2$matched_patient_id))
 ```
-## run xgboost as is
+## Prepare xgboost as is
 
 ```{r}
 dat2 <- dat2 %>% select(-one_of("matched_patient_id"))
@@ -216,13 +217,19 @@ lrn_xgb <- makeLearner(cl = "classif.xgboost", predict.type = "prob")
 
 # make resample object
 rdesc <- makeResampleDesc(method = "CV", iters = 3)
+```
 
+```{r}
 # resample
 res <- resample(learner = lrn_xgb, task = dataset, resampling = rdesc)
 
 # make pr curve:
 pr_curve <- perf_binned_perf_curve(pred = res$pred)
+```
 
+## Train the xgboost -- can take a while
+
+```{r}
 # train model
 xgb_model <- train(learner = lrn_xgb,
                    task = dataset)

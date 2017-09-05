@@ -1,0 +1,30 @@
+---
+title: "Subseting the IPF_Cohort"
+author: "Norman Poh"
+date: "5 September 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Init
+
+```{r}
+setwd("F:/Norman/BI_IPF2017/data")
+library(palab)
+library(palabmod)
+library(ggplot2)
+library(tidyverse)
+library(stringr)
+library(lubridate)
+```
+
+
+##
+
+```{r}
+knitr::opts_knit$set(root.dir = 'F:/Norman/BI_IPF2017/data')
+
+```
