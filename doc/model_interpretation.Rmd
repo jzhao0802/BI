@@ -1,0 +1,90 @@
+---
+title: "Model Interpretation Summary"
+author: "Harsha Jayanti"
+date: "24 July 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(xgboost)
+library(mlr)
+library(PRROC)
+```
+
+## Data
+Unmatched data from the Teva Tardive Dyskensia project
+
+```{r data}
+dir <- "C:/Users/hjayanti/Documents/IMS/Projects/Teva $ TD/data/unmatched_train_ho/"
+train <- readRDS(paste0(dir, "train_unmatch_Teva.rds"))
+ho <- readRDS(paste0(dir, "ho_unmatch_Teva.rds"))
+
+dim(train)
+dim(ho)
+
+train %>% group_by(label) %>% summarise(train_count=n())
+ho %>% group_by(label) %>% summarise(ho_count=n())
+
+```
+
+## Train a model
+XGBoost with default parameters
+
+```{r model}
+
+train_mlr <- makeClassifTask(data=train %>% select(-PATIENT_ID), target="label", positive=1)
+ho_mlr <- makeClassifTask(data=ho %>% select(-PATIENT_ID), target="label", positive=1)
+
+xgb_lrn <- makeLearner(cl = "classif.xgboost", predict.type = "prob")
+model <- train(learner = xgb_lrn, task = train_mlr)
+
+```
+
+## Apply model to data
+```{r apply}
+pred <- predict(object = model, task = ho_mlr)
+head(pred$data)
+
+```
+
+## Plot PR curve
+```{r prcurve}
+pr1 <- pr.curve(scores.class0 = pred$data$prob.1, 
+                weights.class0 = (as.numeric(pred$data$truth) - 1), 
+                curve = TRUE)
+plot(pr1)
+
+```
+
+## Explore ensemble tree model
+```{r explore}
+
+# Number of trees
+# Max depth of tree
+# Number of columns and 
+
+
+xgb.plot.tree(plot_height = 1000, 
+              model = model$learner.model, 
+              n_first_tree = 0, 
+              feature_names = model$features, 
+              
+)
+
+```
+
+## Variable importance
+```{r varimp}
+simple_imp <- xgb.importance(feature_names = model$features, 
+                            model = model$learner.model)
+
+split_imp <- xgb.importance(feature_names = model$features,
+                            model = model$learner.model,
+                            data = train_mlr$env$data,
+                            label = (as.numeric(train_mlr$env$data$label) - 1)
+                            )
+head(simple_imp)
+head(split_imp)
+```
