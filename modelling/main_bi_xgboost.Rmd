@@ -276,55 +276,44 @@ patient_id, label, matched_patient_id are not needed for the modelling stage
 ```{r}
 load_data_with_config_raw <- FALSE
 
-for (f in 1:3) {
-  
-  config_raw_fname <- sprintf("bi_raw%d_var_config.csv",f)
-  
-  if (load_data_with_config_raw) {
-    config_raw <- read_csv(config_raw_fname)
-  } else {
-  
-    var_config_generator(input_csv = paste0(data_dir, date_files[1]),
-                       prefix = sprintf("bi_raw%d_",f),
-                       output_dir = ".")
-    
-    config_raw <- read_csv(config_raw_fname)
-    
-    #View(config_raw)
-    
-    # 1. Add key -- otherwise the file won't load
-    config_raw$Type[ str_detect(config_raw$Column, "^PATIENT_ID$") ] <- "key"
-    
-    # 2. Change the flag to others
-    matching <- str_detect(config_raw$Column,"_DT$") | str_detect(config_raw$Column,"_DT_$")
-    config_raw$Type[matching]="others"
-  
-    write_csv(config_raw, config_raw_fname)
-  }
-}
-```
+if (! load_data_with_config_raw) {
 
-
-## Before loading the date files, I found problems with date file 2
-
-'LVL3_BRON_LAVAGE_CLM_CNT', 'LVL3_BRON_LAVAGE_VST_CNT', 'LVL3_BRON_LAVAGE_AVG_RXDX', 'LVL3_COR_BYPASS_CLM_CNT', 'LVL3_COR_BYPASS_VST_CNT', 'LVL3_COR_BYPASS_AVG_RXDX', 'LVL3_CLUB_FNGRS_CLM_CNT', 'LVL3_CLUB_FNGRS_VST_CNT', 'LVL3_CLUB_FNGRS_AVG_RXDX', 'LVL3_COPD_LRX_CLM_CNT', 'LVL3_COPD_LRX_VST_CNT', 'LVL3_COPD_LRX_AVG_RXDX', 'LVL3_HYPERS_PNEU_CLM_CNT', 'LVL3_HYPERS_PNEU_VST_CNT', 'LVL3_HYPERS_PNEU_AVG_RXDX', 'LVL3_RAD_EXP_CLM_CNT', 'LVL3_RAD_EXP_VST_CNT', 'LVL3_RAD_EXP_AVG_RXDX', 'LVL3_RESP_ARRST_CLM_CNT', 'LVL3_RESP_ARRST_VST_CNT', 'LVL3_RESP_ARRST_AVG_RXDX', 'LVL3_TUBERCUL_CLM_CNT', 'LVL3_TUBERCUL_VST_CNT', 'LVL3_TUBERCUL_AVG_RXDX', 'LVL3_COPD_LRXDX_CLM_CNT', 'LVL3_COPD_LRXDX_VST_CNT', 'LVL3_COPD_LRXDX_AVG_RXDX', contain non numeric data
-
-```{r}
-for (f in 2:3) {
+  f <- 1  
   config_raw_fname <- sprintf("bi_raw%d_var_config.csv",f)
   config_raw <- read_csv(config_raw_fname)
-  matching <- !str_detect(config_raw$Column,"PATIENT_ID")
+  var_config_generator(input_csv = paste0(data_dir, date_files[f]),
+                       prefix = sprintf("bi_raw%d_",f),
+                       output_dir = ".")
+  config_raw$Type[ str_detect(config_raw$Column, "^PATIENT_ID$") ] <- "key"
+    
+  # 2. Change the flag to others
+  matching <- str_detect(config_raw$Column,"_DT$") | str_detect(config_raw$Column,"_DT_$")
   config_raw$Type[matching]="others"
   write_csv(config_raw, config_raw_fname)
+  
+  
+  for (f in 2:3) {
+    config_raw_fname <- sprintf("bi_raw%d_var_config.csv",f)
+    
+    var_config_generator(input_csv = paste0(data_dir, date_files[f]),
+                         prefix = sprintf("bi_raw%d_",f),
+                         output_dir = ".")
+    config_raw <- read_csv(config_raw_fname)
+    matching <-  str_detect(config_raw$Column, "^NON_IPF_PATIENT$")
+    config_raw$Type[ matching ] <- "key"
+    config_raw$Type[ ! matching ] <- "others"  
+    
+    write_csv(config_raw, config_raw_fname)
+  }
+
 }
 ```
+
 ## Now load the date files
 
-
-
 ```{r}
-bi_raw <-  vector('list',3)
-for (f in 1:3){
+#bi_raw <-  vector('list',3)
+for (f in 2:3){
   config_raw_fname <- sprintf("bi_raw%d_var_config.csv",f)
   bi_raw[[f]] <- read_transform(
     input_csv = paste0(data_dir, date_files[f]),
@@ -338,27 +327,77 @@ for (f in 1:3){
 }
 ```
 
+## Rename the column
 
+```{r}
+bi_raw[[2]]$data <- rename(bi_raw[[2]]$data, PATIENT_ID = NON_IPF_PATIENT)
+bi_raw[[3]]$data <- rename(bi_raw[[3]]$data, PATIENT_ID = NON_IPF_PATIENT)
+```
+
+
+
+saveRDS(city, "city.rds")
+
+## Rectify my error :(
+```{r}
+
+for (f in 1:3){
+  print( nrow(bi[[f]]$data))
+}
+for (f in 1:3){
+  print( nrow(bi_raw[[f]]$data))
+}
+
+# rectify the problem
+bi_raw_ <- vector('list', 3)
+bi_raw_[[1]] <- bi_raw[[2]]
+bi_raw_[[2]] <- bi_raw[[1]]
+bi_raw_[[3]] <- bi_raw[[3]]
+
+rm(bi_raw)
+bi_raw <- bi_raw_
+rm(bi_raw_)
+
+for (f in 1:3){
+  print( nrow(bi[[f]]$data))
+}
+for (f in 1:3){
+  print( nrow(bi_raw[[f]]$data))
+}
+```
 ## Ensure that BI and BI 
 This is to ensure that only rows where the matching patient ids (matched_patient_id) for the patient_id are included
 
 ```{r}
-
 for (f in 1:3){
   key_ <- bi[[f]]$data$patient_id
-  bi_raw[f] <- subset( bi_raw[[f]]$data, PATIENT_ID %in% key_)
+  print( length(key_) )
+  print( length(bi_raw[[f]]$data$PATIENT_ID) )
+  #nrow ( subset( bi_raw[[f]]$data, PATIENT_ID %in% key_) )
+  bi_raw[[f]] <- subset( bi_raw[[f]]$data, PATIENT_ID %in% key_)
 }
 ```
 
 ## Now 
 
+
 ```{r}
 for (f in 1:3){
- bi_raw[f] <- subset( bi_raw[[f]]$data, matched_patient_id %in% id_pos)
+  key_ <- bi[[f]]$data$patient_id
+  print( nrow(bi_raw[[f]]) )
+  print( length(key_) )
+  
 }
 ```
 
+## Save the bi and bi_raw variables which are now completely aligned
 
+```{r}
+saveRDS(bi_raw, "bi_raw.rds")
+saveRDS(bi, "bi.rds")
+```
+
+## 
 
 
 
