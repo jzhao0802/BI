@@ -525,30 +525,24 @@ for (f in 1:2) {
 There is no variable names ending with DIFF in bi
   str_detect(colnames(bi[[1]]$data), 'DIFF$')
 
-## Just process features[[3]
+##
 ```{r}
-f <- 3
+
 tic()
 tmp_ <- bi_raw[[f]] %>%
   select( one_of(common_fields_DT), INDEX_DATE)
 toc()
 
-tic()
 tmp_ <- as.data.frame( lapply(tmp_, dmy) )
 toc()
 
-tic()
 datediff_ <- create_date_diffs(tmp_, index_col = "INDEX_DATE")
 toc()
 
 #rename the columns by adding _DIFF to the end
-tic()
 colnames(datediff_) <- paste0(colnames(datediff_), '_DIFF')
 toc()
-
-tic()
-feature3 <- cbind(bi[[f]]$data, datediff_)
-toc()
+feature3 <- <- cbind(bi[[f]]$data, datediff_)
 
 ```
 ## Clear the memory
@@ -573,7 +567,7 @@ toc()
 ```{r}
 # the training set
 t <- 1
-data_[[t]] <- rbind(subset( features[[2]], matched_patient_id %in% idlist[[t]]) , #pos
+data_[[t]] <- rbind(( features[[2]], matched_patient_id %in% idlist[[t]]) , #pos
                     subset( features[[1]], matched_patient_id %in% idlist[[t]]) ) #neg 200
                     #subset( features[[3]], matched_patient_id %in% idlist[[t]]) ) #neg 653
 # the test set

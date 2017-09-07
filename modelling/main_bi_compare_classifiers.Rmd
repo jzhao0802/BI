@@ -1,0 +1,151 @@
+---
+title: "BI-IPF comparing features"
+author: "Norman Poh"
+date: "7 September 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up
+
+```{r}
+run_on_server <- TRUE
+load_data_with_config <- TRUE
+
+if (run_on_server) {
+  setwd("K:/Norman/BI_IPF2017/modelling") 
+} else {
+  setwd("C:/Users/npoh/Documents/Git/projects/bi/modelling")
+}
+
+library(palab)
+library(palabmod)
+library(ggplot2)
+library(tidyverse)
+library(stringr)
+library(lubridate)
+library(mlr)
+library(tictoc)
+```
+
+## Start with repeatability in mind
+```{r results = "hide"}
+random_seed <- 123
+set.seed(random_seed, "L'Ecuyer")
+```
+
+## Functions
+
+### divide_into_train_test_sets: (idlist, train_prop = .75 ) -> two idlist
+
+```{r}
+divide_into_train_test_sets <- function(id_pos, train_prop = .75 ) {
+  #INPUT:
+  #id_list    : a patient IDs list that is unique
+  #train_prop : training proportion between 0 and 1
+  #OUTPUT
+  #a list with two lists of patient IDs, corresponding to the training and the test set
+  
+  test_prop <- 1 - train_prop
+  
+  mylist <- round( c(train_prop, test_prop) * length(id_pos) )
+  
+  trainlist <- 1:mylist[1]
+  testlist <- (mylist[1]+1):length(id_pos)
+  
+  order <- sample( length(id_pos) )
+  
+  idlist <-  vector('list',2)
+  idlist[[1]] <- id_pos[order[trainlist]]
+  idlist[[2]] <- id_pos[order[testlist]]
+  
+  return(idlist)
+}
+
+```
+
+## load the features
+```{r}
+tic()
+features <- readRDS('features.rds')
+toc()
+```
+
+## Load the idlist
+```{r}
+if ( file.exists("idlist.rds")) {
+  idlist <- readRDS("idlist.rds")
+} else {
+  id_pos <- features[[2]]$patient_id
+  idlist <- divide_into_train_test_sets(id_pos, train_prop = .75)
+  saveRDS(idlist, "idlist.rds")
+}
+```
+## We shall now combine the features
+```{r}
+# the training set
+data_ <- vector('list', 2)
+
+tic()
+t <- 1
+data_[[t]] <- rbind( subset( features[[2]], matched_patient_id %in% idlist[[t]]) , #pos
+                     subset( features[[1]], matched_patient_id %in% idlist[[t]]) ) #neg 200
+                    #subset( features[[3]], matched_patient_id %in% idlist[[t]]) ) #neg 653
+toc()
+
+# the test set
+tic()
+t <- 2
+data_[[t]] <- rbind(subset( features[[2]], matched_patient_id %in% idlist[[t]]) , #pos
+                    subset( features[[1]], matched_patient_id %in% idlist[[t]]) ) #neg 200
+                    #subset( features[[3]], matched_patient_id %in% idlist[[t]]) ) #neg 653
+toc()
+
+dim(features[[1]])
+dim(features[[2]])
+dim(data_[[2]])
+dim(data_[[1]])
+
+```
+
+## Train a model
+XGBoost with default parameters
+
+```{r model}
+#checking
+sum(data_[[1]]$label)
+dim(data_[[1]] %>% select(-patient_id, -matched_patient_id, -ends_with("_DIFF")))
+dim(data_[[1]])
+
+train_mlr <- makeClassifTask(data=data_[[1]] %>% select(-patient_id, -matched_patient_id, -ends_with("_DIFF")), target="label", positive=1)
+test_mlr <- makeClassifTask(data=data_[[2]] %>% select(-patient_id, -matched_patient_id, -ends_with("_DIFF")), target="label", positive=1)
+
+xgb_lrn <- makeLearner(cl = "classif.xgboost", predict.type = "prob")
+model <- train(learner = xgb_lrn, task = train_mlr)
+
+
+```
+
+## Apply model to data
+```{r apply}
+pred <- predict(object = model, task = test_mlr)
+head(pred$data)
+tail(pred$data)
+
+
+```
+
+## Plot PR curve
+```{r prcurve}
+install.packages('PRROC')
+library(PRROC)
+
+pr1 <- pr.curve(scores.class0 = pred$data$prob.1, 
+                weights.class0 = (as.numeric(pred$data$truth) - 1), 
+                curve = TRUE)
+plot(pr1)
+
+```
