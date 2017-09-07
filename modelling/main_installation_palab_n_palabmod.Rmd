@@ -18,10 +18,13 @@ install.packages(c('lazyeval', 'forcats','dplyr', 'readr', 'tidyr', 'broom', 'la
 install.packages("mosaic")
 install.packages("htmlTable")
 install.packages("zoo")
-install.packages("F:/Norman/Git/palab/palab-2017-05-15.tar.gz", repos = NULL)
+install.packages("scales")
+install.packages("rlang")
 install.packages( c('mlr', 'BBmisc', 'ROCR', 'tidyverse', 'plotmo', 'parallelMap', 'rattle', 'rpart.plot', 'fastcluster', 'yakmoR', 'fields', 'hash') )
-install.packages("F:/Norman/Git/palabmod/builds/palabmod_1.0.2.tar.gz", repos = NULL)
+install.packages("K:/Git/palab/palab-2017-05-15.tar.gz", repos = NULL)
+install.packages("K:/Git/palabmod/builds/palabmod_1.0.2.tar.gz", repos = NULL)
 
+install.packages("knitr")
 ```
 
 ## Install additional libraries

@@ -16,7 +16,7 @@ run_on_server <- TRUE
 load_data_with_config <- TRUE
 
 if (run_on_server) {
-  setwd("F:/Norman/BI_IPF2017/modelling") 
+  setwd("K:/Norman/BI_IPF2017/modelling") 
 } else {
   setwd("C:/Users/npoh/Documents/Git/projects/bi/modelling")
 }
@@ -28,22 +28,68 @@ library(tidyverse)
 library(stringr)
 library(lubridate)
 library(mlr)
-
 ```
 
+## Start with repeatability in mind
+```{r results = "hide"}
+random_seed <- 123
+set.seed(random_seed, "L'Ecuyer")
+```
+
+## Functions
+
+### divide_into_train_test_sets: (idlist, train_prop = .75 ) -> two idlist
+
+```{r}
+divide_into_train_test_sets <- function(id_pos, train_prop = .75 ) {
+  #INPUT:
+  #id_list    : a patient IDs list that is unique
+  #train_prop : training proportion between 0 and 1
+  #OUTPUT
+  #a list with two lists of patient IDs, corresponding to the training and the test set
+  
+  test_prop <- 1 - train_prop
+  
+  mylist <- round( c(train_prop, test_prop) * length(id_pos) )
+  
+  trainlist <- 1:mylist[1]
+  testlist <- (mylist[1]+1):length(id_pos)
+  
+  order <- sample( length(id_pos) )
+  
+  idlist <-  vector('list',2)
+  idlist[[1]] <- id_pos[order[trainlist]]
+  idlist[[2]] <- id_pos[order[testlist]]
+  
+  return(idlist)
+}
+
+```
 
 ## List files -- on local git
 ```{r}
 
 if (run_on_server) {
   data_dir = ""
-  files <- c(
-  "F:/Hui/Project_2016/BI_IPF_2016/04_Summary/004_data/all_features_neg.csv", 
-  "F:/Hui/Project_2016/BI_IPF_2016/04_Summary/004_data/all_features_pos.csv")
+
+    files <- c(
+  "K:/Hui/Project_2016/BI_IPF_2016/04_Summary/004_data/all_features_neg.csv", 
+  "K:/Hui/Project_2016/BI_IPF_2016/04_Summary/004_data/all_features_pos.csv",
+  "K:/Hui/Project_2016/BI_IPF_2016/04_Summary/004_data/all_features_score.csv",
+  "K:/Hui/Project_2016/BI_IPF_2016/04_Summary/004_data/Ss_26m_218_features.csv")
+
+  date_files <- c(  
+  "K:/Norman/BI_IPF2017/data/raw/IPF_Cohort.csv",
+  "K:/Norman/BI_IPF2017/data/raw/Non_IPF_Asthma_COPD_Cohort.csv",
+  "K:/Norman/BI_IPF2017/data/raw/Representative_Sample_Asthma_COPD_Cohort.csv",
+  "K:/Norman/BI_IPF2017/data/raw/Scoring_Sample_V2.csv" )
+
 } else {
   data_dir = "../data/features/"
   files <- list.files(data_dir)
   files
+  
+  warning("date_files are not defined!")
 }
 ```
 
@@ -55,6 +101,10 @@ We need to process the file bi_features_var_config.csv because it does not provi
 if (load_data_with_config) {
   config <- read_csv("bi_features_var_config.csv")
 } else {
+
+  var_config_generator(input_csv = paste0(data_dir, files[1]),
+                     prefix = "bi_features_",
+                     output_dir = ".")
   
   # 1. Add key -- otherwise the file won't load
   config$Type[ str_detect(config$Column, "^patient_id$") ] = "key"
@@ -77,23 +127,108 @@ if (load_data_with_config) {
 }
 ```
 
-## Generating a variable configuration file for the samples
+## Load three files so that they are ready for splitting
+
+These files are neg-small, pos, neg-large, and we want to form just positive and negative samples
+
 ```{r}
-bi <- read_transform(
-  input_csv = paste0(data_dir, files[2]),
-  var_config_csv = "bi_features_var_config.csv",
-  read_key_as_double = FALSE
-)
+bi <-  vector('list',3)
+for (f in 1:3){
+  bi[[f]] <- read_transform(
+    input_csv = paste0(data_dir, files[f]),
+    var_config_csv = "bi_features_var_config.csv",
+    read_key_as_double = TRUE
+  )
+}
+```
+## The problem below is solved
+
+<!-- --------------------------------------------------------------------------------------------- -->
+<!-- ## There seems to be an error when reading the the third file so I reproduce it here -->
+<!-- --------------------------------------------------------------------------------------------- -->
+<!-- The error is "There are 5598822 entries but only 5598801 unique values". -->
+
+<!-- This is documented in an email dated 6 Sept 2017 -->
+<!-- ```{r} -->
+<!-- f<-3 -->
+<!-- ( paste0("reading ", files[f]) ) -->
+<!-- bi3 <- read_transform( -->
+<!--   input_csv = paste0(data_dir, files[f]), -->
+<!--   var_config_csv = "bi_features_var_config.csv", -->
+<!--   read_key_as_double = FALSE -->
+<!--   ) -->
+<!-- ``` -->
+
+## check the patient IDs are in the matched ID set
+
+```{r}
+id_pos <- sort(unique( bi[[2]]$data$patient_id ) )
+for (f in 1:3){
+  mid <- sort(unique( bi[[f]]$data$matched_patient_id )) # matched id
+  if (length(setdiff(id_pos, mid)) == 0 ) {
+    cat(sprintf("There is no difference between positive patient id and the matched patient id for data set %d\n",f))
+  } else {
+    cat("The following IDs have no matched negative samples\n")
+    cat( sprintf("n = %d\n", length(setdiff(id_pos, mid)) ) )
+    print(setdiff(id_pos, mid))
+  }
+}
+id_pos <- sort(unique( bi[[2]]$data$patient_id ) )
+```
+
+## Filter out this user
+```{r}
+for (f in 1:3){
+  bi[[f]]$data <- bi[[f]]$data %>% filter(matched_patient_id != 2154663092)
+}
+
 ```
 
 ## Just checking
 ```{r}
-sum(bi$data$label)
-nrow((bi$data))
 
-colnames(bi$data)
+for (f in 1:3){
+  cat ("Number of rows: ")
+  cat (nrow(bi[[f]]$data) )
+  cat ("\nNumber of positive samples: ")
+  cat (sum(bi[[f]]$data$label))
+  cat("\n")
+}
 
 ```
+
+## Divide the data into training and test sets
+
+```{r}
+if ( file.exists("idlist_partition.txt")) {
+  idlist <- read_csv("idlist_partition.txt")
+} else {
+  idlist <- divide_into_train_test_sets(id_pos, train_prop = .75)
+  write_csv()
+}
+data_ <-  vector('list',2)
+
+# the training set
+t <- 1
+data_[[t]] <- rbind(subset( bi[[2]]$data, matched_patient_id %in% idlist[[t]]) , #pos
+                    subset( bi[[1]]$data, matched_patient_id %in% idlist[[t]]) ) #neg 200
+                    #subset( bi[[3]]$data, matched_patient_id %in% idlist[[t]]) ) #neg 653
+# the test set
+t <- 2
+data_[[t]] <- rbind(subset( bi[[2]]$data, matched_patient_id %in% idlist[[t]]) , #pos
+                    subset( bi[[1]]$data, matched_patient_id %in% idlist[[t]]) , #neg 200
+                    subset( bi[[3]]$data, matched_patient_id %in% idlist[[t]]) ) #neg 653
+
+# checking the prior probability of the positive class remains the same in both training and test sets
+sum(data_[[1]]$label) / nrow(data_[[1]])
+sum(data_[[2]]$label) / nrow(data_[[2]])
+
+# now remove variables
+# rm(bi)
+
+```
+
+
 
 
 ## Load the new predictors as they were found useful
@@ -124,218 +259,116 @@ sum(stat)
 ```
 
 ## List variables that should not have been included
+
+Note that I'm not changing any thing here.
 ```{r}
-config$Column[is_included == FALSE]
+var_list_to_exclude <- config$Column[is_included == FALSE]
+print(var_list_to_exclude)
 ```
 
-The results look reasonable
- 
-## now load the negative samples
+The above results look reasonable as we don't have many features that we need to ignore. So, I won't exclude anything at this stage.
+
+patient_id, label, matched_patient_id are not needed for the modelling stage
+
+# var_list_to_exclude <- var_list_to_exclude[c(-1,-6, -7)]
+
+## Generate the var_config.csv files for the date_files
 ```{r}
-bi_neg <- read_transform(
-  input_csv = paste0(data_dir, files[1]),
-  var_config_csv = "bi_features_var_config.csv",
-  read_key_as_double = FALSE
-)
-```
+load_data_with_config_raw <- FALSE
 
-## Checking
-```{r}
-sum(bi_neg$data$label == 0)
-nrow(bi_neg$data)
-
-# There should be no difference here
-setdiff(names(bi$data), names(bi_neg$data))
-setdiff(names(bi_neg$data), names(bi$data))
-```
-
-## Combine them
-
-```{r}
-# colnames(bi$data)
-# new_predictor_list$Variable_name
-```
-
-
-## Row-binding
-```{r}
-dat <-rbind(bi$data, bi_neg$data)
-```
-
-
-## List variables that should not have been included
-```{r}
-config$Column[is_included == FALSE]
-```
-
-## Analyse variables that should not have been included before deleting them -- I want to know why these variables are not good
-
-```{r}
-config$Column[is_included == FALSE]
-
-ggplot(dat, aes(SYMP_CNT, group=label, fill=label)) + 
-     geom_histogram(binwidth=0.5,  alpha = .2)
-
-ggplot(dat, aes(SYMP_CNT, group=label, fill=label)) + 
-  geom_density(alpha=.5) 
-
-# Examine the lookback days
-ggplot(dat, aes(LOOKBACK_DAYS, group=label, fill=label)) + 
-  geom_density(alpha=.5) 
-
-dat$int_O_PULM_F_T_6_M_WALK
-ggplot(dat, aes(int_O_PULM_F_T_6_M_WALK, group=label, fill=label)) + 
-  geom_density(alpha=.5) 
-
-dat_<-subset(dat, int_O_PULM_F_T_6_M_WALK !=0)
-ggplot(dat_, aes(int_O_PULM_F_T_6_M_WALK, group=label, fill=label)) + geom_density(alpha=.5) 
-
-```
-## ml-R complained because data set contains NA so we need to remove them
-```{r}
+for (f in 1:3) {
   
-matches <- as.factor(dat$matched_patient_id)
-sum(is.na(dat$matched_patient_id))
-
-dat2 <- dat %>% filter(!is.na(matched_patient_id))
-matches <- as.factor(dat2$matched_patient_id)
-sum(is.na(dat2$matched_patient_id))
-```
-## Prepare xgboost as is
-
-```{r}
-dat2 <- dat2 %>% select(-one_of("matched_patient_id"))
-
-ids <- utils_get_ids(dat2, config)
-df <- utils_get_variables(dat2, config)
-
-# There should be only patient_id (the key)
-setdiff(colnames(dat), colnames(df))
-
-# Setup dataset - for imputing missing values have a look at the vignette
-target = "label"
-
-#dat2 <- dat %>% select(-one_of("label"))
-
-dataset <- makeClassifTask(id="BC", data=df, 
-                           target=target,
-                           positive=1, 
-                           blocking=matches)
-
-# make learner
-lrn_xgb <- makeLearner(cl = "classif.xgboost", predict.type = "prob")
-
-# make resample object
-rdesc <- makeResampleDesc(method = "CV", iters = 3)
-```
-
-```{r}
-# resample
-res <- resample(learner = lrn_xgb, task = dataset, resampling = rdesc)
-
-# make pr curve:
-pr_curve <- perf_binned_perf_curve(pred = res$pred)
-```
-
-
-
-
-## OK, we know that xgboost is running correctly. Now, we can run a full-fledged version
-
-## Start with repeatability in mind
-```{r results = "hide"}
-random_seed <- 123
-set.seed(random_seed, "L'Ecuyer")
-
-recall_thrs <- 10
-random_search_iter <- 50L
-
-output_folder = "xgboost"
-utils_create_output_folder(output_folder)
-```
-
-##  Setup modelling
-
-```{r}
-target_vector <- dat2$label
+  config_raw_fname <- sprintf("bi_raw%d_var_config.csv",f)
   
-# Define weights as the inverse class frequency
-target_vector = getTaskTargets(dataset)
-target_tab = as.numeric(table(target_vector))
-iw = 1/target_tab[target_vector]
+  if (load_data_with_config_raw) {
+    config_raw <- read_csv(config_raw_fname)
+  } else {
+  
+    var_config_generator(input_csv = paste0(data_dir, date_files[1]),
+                       prefix = sprintf("bi_raw%d_",f),
+                       output_dir = ".")
+    
+    config_raw <- read_csv(config_raw_fname)
+    
+    #View(config_raw)
+    
+    # 1. Add key -- otherwise the file won't load
+    config_raw$Type[ str_detect(config_raw$Column, "^PATIENT_ID$") ] <- "key"
+    
+    # 2. Change the flag to others
+    matching <- str_detect(config_raw$Column,"_DT$") | str_detect(config_raw$Column,"_DT_$")
+    config_raw$Type[matching]="others"
+  
+    write_csv(config_raw, config_raw_fname)
+  }
+}
+```
 
-# Define XGboost learner
-lrn <- makeLearner("classif.xgboost", predict.type="prob")
 
-lrn$par.vals = list(
-  nrounds = 100,
-  verbose = F,
-  objective = "binary:logistic"
-  # to restrict memory and  cpu usage set nthreads = 2
-  # for multiclass use objective = "multi:softmax"
-)
+## Before loading the date files, I found problems with date file 2
 
-# Wrap our learner so it will randomly downsample the majority class
-lrn <- makeUndersampleWrapper(lrn)
+'LVL3_BRON_LAVAGE_CLM_CNT', 'LVL3_BRON_LAVAGE_VST_CNT', 'LVL3_BRON_LAVAGE_AVG_RXDX', 'LVL3_COR_BYPASS_CLM_CNT', 'LVL3_COR_BYPASS_VST_CNT', 'LVL3_COR_BYPASS_AVG_RXDX', 'LVL3_CLUB_FNGRS_CLM_CNT', 'LVL3_CLUB_FNGRS_VST_CNT', 'LVL3_CLUB_FNGRS_AVG_RXDX', 'LVL3_COPD_LRX_CLM_CNT', 'LVL3_COPD_LRX_VST_CNT', 'LVL3_COPD_LRX_AVG_RXDX', 'LVL3_HYPERS_PNEU_CLM_CNT', 'LVL3_HYPERS_PNEU_VST_CNT', 'LVL3_HYPERS_PNEU_AVG_RXDX', 'LVL3_RAD_EXP_CLM_CNT', 'LVL3_RAD_EXP_VST_CNT', 'LVL3_RAD_EXP_AVG_RXDX', 'LVL3_RESP_ARRST_CLM_CNT', 'LVL3_RESP_ARRST_VST_CNT', 'LVL3_RESP_ARRST_AVG_RXDX', 'LVL3_TUBERCUL_CLM_CNT', 'LVL3_TUBERCUL_VST_CNT', 'LVL3_TUBERCUL_AVG_RXDX', 'LVL3_COPD_LRXDX_CLM_CNT', 'LVL3_COPD_LRXDX_VST_CNT', 'LVL3_COPD_LRXDX_AVG_RXDX', contain non numeric data
 
-# Define hyper parameters, read this https://goo.gl/CMQxha and XGBoost's docs
-ps = makeParamSet(
-  makeNumericParam("eta", lower=0.01, upper=0.3),
-  makeIntegerParam("max_depth", lower=2, upper=6),
-  makeIntegerParam("min_child_weight", lower=1, upper=5),
-  makeNumericParam("colsample_bytree", lower=.5, upper=1),
-  makeNumericParam("subsample", lower=.5, upper=1),
-  makeNumericParam("usw.rate", lower=.5, upper=1)
-)
+```{r}
+for (f in 2:3) {
+  config_raw_fname <- sprintf("bi_raw%d_var_config.csv",f)
+  config_raw <- read_csv(config_raw_fname)
+  matching <- !str_detect(config_raw$Column,"PATIENT_ID")
+  config_raw$Type[matching]="others"
+  write_csv(config_raw, config_raw_fname)
+}
+```
+## Now load the date files
 
-# Define random search
-ctrl <- makeTuneControlRandom(maxit=random_search_iter, tune.threshold=F)
 
-# Define performane metrics - use at least 2, otherwise get_results won't work
-pr10 <- perf_make_pr_measure(recall_thrs, "pr10")
-m2 <- auc
-m3 <- setAggregation(pr10, test.sd)
-m4 <- setAggregation(auc, test.sd)
-# It's always the first in the list that's used to rank hyperparams in tuning
-m_all <- list(pr10, m2, m3, m4)
 
-# Define outer and inner resampling strategies
-outer <- makeResampleDesc("CV", iters=3, stratify=T, predict = "both")
-inner <- makeResampleDesc("CV", iters=3, stratify=T)
-
-matching <- TRUE
-if (matching){
-  outer$stratify <- FALSE
-  inner$stratify <- FALSE
+```{r}
+bi_raw <-  vector('list',3)
+for (f in 1:3){
+  config_raw_fname <- sprintf("bi_raw%d_var_config.csv",f)
+  bi_raw[[f]] <- read_transform(
+    input_csv = paste0(data_dir, date_files[f]),
+    var_config_csv = config_raw_fname,
+    read_key_as_double = TRUE
+  )
 }
 
-# Define wrapped learner: this is mlR's way of doing nested CV on a learner
-lrn_wrap <- makeTuneWrapper(lrn, resampling=inner, par.set=ps, control=ctrl,
-                            show.info=F, measures=m_all)
+for (f in 1:3){
+ print( nrow(bi_raw[[f]]$data)  )
+}
 ```
 
-##  Training model with nested CV and save results
+
+## Ensure that BI and BI 
+This is to ensure that only rows where the matching patient ids (matched_patient_id) for the patient_id are included
 
 ```{r}
-parallelStartSocket(detectCores(), level="mlr.tuneParams")
-res <- resample(lrn_wrap, dataset, resampling=outer, models=T, weights=iw,
-                extract=getTuneResult, show.info=F, measures=m_all)
-parallelStop()
-readr::write_rds(res, file.path(output_folder, "all_results.rds"))
 
+for (f in 1:3){
+  key_ <- bi[[f]]$data$patient_id
+  bi_raw[f] <- subset( bi_raw[[f]]$data, PATIENT_ID %in% key_)
+}
 ```
 
-
-## Train the xgboost -- can take a while
+## Now 
 
 ```{r}
-# train model
-xgb_model <- train(learner = lrn_xgb,
-                   task = dataset)
-
-# make predictions
-pred <- predict(object = xgb_model, newdata = cars_num)
-
-pred$threshold
-
+for (f in 1:3){
+ bi_raw[f] <- subset( bi_raw[[f]]$data, matched_patient_id %in% id_pos)
+}
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
