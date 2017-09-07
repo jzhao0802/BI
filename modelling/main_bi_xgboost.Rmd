@@ -79,8 +79,8 @@ if (run_on_server) {
   "K:/Hui/Project_2016/BI_IPF_2016/04_Summary/004_data/Ss_26m_218_features.csv")
 
   date_files <- c(  
-  "K:/Norman/BI_IPF2017/data/raw/IPF_Cohort.csv",
   "K:/Norman/BI_IPF2017/data/raw/Non_IPF_Asthma_COPD_Cohort.csv",
+  "K:/Norman/BI_IPF2017/data/raw/IPF_Cohort.csv",
   "K:/Norman/BI_IPF2017/data/raw/Representative_Sample_Asthma_COPD_Cohort.csv",
   "K:/Norman/BI_IPF2017/data/raw/Scoring_Sample_V2.csv" )
 
@@ -278,7 +278,7 @@ load_data_with_config_raw <- FALSE
 
 if (! load_data_with_config_raw) {
 
-  f <- 1  
+  f <- 2 # for the positive samples
   config_raw_fname <- sprintf("bi_raw%d_var_config.csv",f)
   config_raw <- read_csv(config_raw_fname)
   var_config_generator(input_csv = paste0(data_dir, date_files[f]),
@@ -292,7 +292,7 @@ if (! load_data_with_config_raw) {
   write_csv(config_raw, config_raw_fname)
   
   
-  for (f in 2:3) {
+  for (f in c(1,3)) {
     config_raw_fname <- sprintf("bi_raw%d_var_config.csv",f)
     
     var_config_generator(input_csv = paste0(data_dir, date_files[f]),
@@ -313,7 +313,7 @@ if (! load_data_with_config_raw) {
 
 ```{r}
 #bi_raw <-  vector('list',3)
-for (f in 2:3){
+for (f in c(1, 3) ){
   config_raw_fname <- sprintf("bi_raw%d_var_config.csv",f)
   bi_raw[[f]] <- read_transform(
     input_csv = paste0(data_dir, date_files[f]),
@@ -330,42 +330,40 @@ for (f in 1:3){
 ## Rename the column
 
 ```{r}
-bi_raw[[2]]$data <- rename(bi_raw[[2]]$data, PATIENT_ID = NON_IPF_PATIENT)
+bi_raw[[1]]$data <- rename(bi_raw[[1]]$data, PATIENT_ID = NON_IPF_PATIENT)
 bi_raw[[3]]$data <- rename(bi_raw[[3]]$data, PATIENT_ID = NON_IPF_PATIENT)
 ```
 
+## below wound not have been necessary now
+<!-- ## Rectify my error :( -->
+<!-- ```{r} -->
 
+<!-- for (f in 1:3){ -->
+<!--   print( nrow(bi[[f]]$data)) -->
+<!-- } -->
+<!-- for (f in 1:3){ -->
+<!--   print( nrow(bi_raw[[f]]$data)) -->
+<!-- } -->
 
-saveRDS(city, "city.rds")
+<!-- # rectify the problem -->
+<!-- bi_raw_ <- vector('list', 3) -->
+<!-- bi_raw_[[1]] <- bi_raw[[2]] -->
+<!-- bi_raw_[[2]] <- bi_raw[[1]] -->
+<!-- bi_raw_[[3]] <- bi_raw[[3]] -->
 
-## Rectify my error :(
-```{r}
+<!-- rm(bi_raw) -->
+<!-- bi_raw <- bi_raw_ -->
+<!-- rm(bi_raw_) -->
 
-for (f in 1:3){
-  print( nrow(bi[[f]]$data))
-}
-for (f in 1:3){
-  print( nrow(bi_raw[[f]]$data))
-}
+<!-- for (f in 1:3){ -->
+<!--   print( nrow(bi[[f]]$data)) -->
+<!-- } -->
+<!-- for (f in 1:3){ -->
+<!--   print( nrow(bi_raw[[f]]$data)) -->
+<!-- } -->
+<!-- ``` -->
 
-# rectify the problem
-bi_raw_ <- vector('list', 3)
-bi_raw_[[1]] <- bi_raw[[2]]
-bi_raw_[[2]] <- bi_raw[[1]]
-bi_raw_[[3]] <- bi_raw[[3]]
-
-rm(bi_raw)
-bi_raw <- bi_raw_
-rm(bi_raw_)
-
-for (f in 1:3){
-  print( nrow(bi[[f]]$data))
-}
-for (f in 1:3){
-  print( nrow(bi_raw[[f]]$data))
-}
-```
-## Ensure that BI and BI 
+## Align bi and bi_raw by retaining only what is available in bi, discarding extra rows in bi_raw 
 This is to ensure that only rows where the matching patient ids (matched_patient_id) for the patient_id are included
 
 ```{r}
@@ -378,8 +376,7 @@ for (f in 1:3){
 }
 ```
 
-## Now 
-
+## Checking
 
 ```{r}
 for (f in 1:3){
@@ -397,14 +394,67 @@ saveRDS(bi_raw, "bi_raw.rds")
 saveRDS(bi, "bi.rds")
 ```
 
-## 
+<!-- ##  -->
+
+<!-- ```{r} -->
+<!-- id_pos <- sort(unique( bi[[2]]$data$patient_id ) ) -->
+
+<!-- idlist <- divide_into_train_test_sets(id_pos, train_prop = .75) -->
+<!-- ``` -->
+
+## Let's derive new variables
+
+
+```{r}
+config_raw <- vector('list', 3)
+for (f in 1:3) {
+  config_raw_fname <- sprintf("bi_raw%d_var_config.csv",f)
+  config_raw[[f]] <- read_csv(config_raw_fname)
+}
+```
+
+## Find out common_fields_DT, i.e., the common fields across the labeled data sets ending with a date
+
+```{r}
+# First there should be no difference between sets 1 and 3 (both neg samples)
+setdiff(config_raw[[3]]$Column, config_raw[[1]]$Column)
+setdiff(config_raw[[1]]$Column, config_raw[[3]]$Column)
+
+pos_fields <- as_tibble( setdiff(config_raw[[2]]$Column, config_raw[[1]]$Column) )
+common_fields <- as_tibble( intersect( config_raw[[2]]$Column, config_raw[[1]]$Column) )
+
+pos_fields_only <- setdiff(pos_fields, common_fields)
+View(pos_fields_only)
+View(common_fields)
+common_fields_DT <- common_fields %>% filter( str_detect(value, "_DT$")  )
+
+```
+
+## positive set has three possible fields
+
+```{r}
+diagnosis <- c('FIRST_OFEV_RX_DT', 'FIRST_ESBRIET_RX_DT', 'FIRST_IPF_DIAG_FLAG')
+#bi_raw[[f]]$
+
+```
+FIRST_IPF_EXPOSURE_DT might be derived from the above
+
+## negative set has three possible fields
+NON_IPF_INDEX_2
+IDX_LATE_LOOK_BACK_DAYS
 
 
 
+```{r}
+data_working <- select(bi_raw, ends_with("_DT"), FIRST_IPF_DIAG_FLAG)
+data_working <- as.data.frame(  lapply(data_working, dmy) )
+
+# Calculate the date difference
+datediff_pos <-  as.data.frame(  lapply(data_working, 
+                                         function(x) {dmy(data_pos$data$FIRST_IPF_DIAG_FLAG) - x }) )
 
 
-
-
+```
 
 
 
