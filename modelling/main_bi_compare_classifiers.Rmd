@@ -161,6 +161,9 @@ tail(pred$data)
 # Check the distribution
 res_ <- tibble ( logit = logit(pred$data$prob.1), label = data_[[2]]$label )
 
+ggplot(res_, aes(res_$logit, col=label, fill=label)) + 
+    geom_density(alpha=.5) 
+
 # Plot PR curve
 pr1 <- pr.curve(scores.class0 = pred$data$prob.1, 
                 weights.class0 = (as.numeric(pred$data$truth) - 1), 
