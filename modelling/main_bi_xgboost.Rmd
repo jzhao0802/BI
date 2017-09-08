@@ -198,15 +198,20 @@ for (f in 1:3){
 
 ```
 
+## Load the idlist
+```{r}
+if ( file.exists("idlist.rds")) {
+  idlist <- readRDS("idlist.rds")
+} else {
+  id_pos <- features[[2]]$patient_id
+  idlist <- divide_into_train_test_sets(id_pos, train_prop = .75)
+  saveRDS(idlist, "idlist.rds")
+}
+```
+
 ## Divide the data into training and test sets
 
 ```{r}
-if ( file.exists("idlist_partition.txt")) {
-  idlist <- read_csv("idlist_partition.txt")
-} else {
-  idlist <- divide_into_train_test_sets(id_pos, train_prop = .75)
-  write_csv()
-}
 data_ <-  vector('list',2)
 
 # the training set
@@ -525,9 +530,25 @@ for (f in 1:2) {
 There is no variable names ending with DIFF in bi
   str_detect(colnames(bi[[1]]$data), 'DIFF$')
 
+## save features
+```{r}
+saveRDS(features, 'features.rds')
+
+```
+
 ## Just process features[[3]
 ```{r}
-f <- 3
+
+# Let's free off some memory
+bi_raw[c(1,2)]<-NULL
+bi[c(1,2)]<-NULL
+
+dim(bi_raw[[1]])
+dim(bi[[1]]$data)
+
+# Let's then carry out operation
+
+f <- 1
 tic()
 tmp_ <- bi_raw[[f]] %>%
   select( one_of(common_fields_DT), INDEX_DATE)
@@ -536,6 +557,15 @@ toc()
 tic()
 tmp_ <- as.data.frame( lapply(tmp_, dmy) )
 toc()
+
+#do subset here instead
+t<-2 #test set
+selected <- bi[[1]]$data$matched_patient_id %in% idlist[[t]]
+
+bi[[f]]$data <- bi[[f]]$data[selected,]                               
+tmp_ <- tmp_[selected,]
+
+rm(bi_raw)
 
 tic()
 datediff_ <- create_date_diffs(tmp_, index_col = "INDEX_DATE")
@@ -546,22 +576,16 @@ tic()
 colnames(datediff_) <- paste0(colnames(datediff_), '_DIFF')
 toc()
 
+dim(bi[[f]]$data)
+
 tic()
 feature3 <- cbind(bi[[f]]$data, datediff_)
 toc()
 
-```
-## Clear the memory
-```{r}
-#rm( bi, bi_raw )
-for (f in 1:2){
-  bi_raw[[f]]<-NULL
-  bi[[f]]$data<-NULL
-}
-
-saveRDS(features, 'features.rds')
+saveRDS(feature3, 'feature3.rds')
 
 ```
+
 ## load the features
 ```{r}
 tic()

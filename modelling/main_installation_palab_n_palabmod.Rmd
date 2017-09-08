@@ -25,10 +25,13 @@ install.packages("K:/Git/palab/palab-2017-05-15.tar.gz", repos = NULL)
 install.packages("K:/Git/palabmod/builds/palabmod_1.0.2.tar.gz", repos = NULL)
 
 install.packages("knitr")
+
 ```
 
 ## Install additional libraries
 ```{r}
 install.packages("xgboost")
 install.packages("parallelMap")
+install.packages('PRROC')
+
 ```

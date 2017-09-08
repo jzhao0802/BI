@@ -29,6 +29,8 @@ library(stringr)
 library(lubridate)
 library(mlr)
 library(tictoc)
+library(PRROC)
+
 ```
 
 ## Start with repeatability in mind
@@ -39,9 +41,10 @@ set.seed(random_seed, "L'Ecuyer")
 
 ## Functions
 
-### divide_into_train_test_sets: (idlist, train_prop = .75 ) -> two idlist
 
 ```{r}
+# divide_into_train_test_sets: (idlist, train_prop = .75 ) -> two idlist
+
 divide_into_train_test_sets <- function(id_pos, train_prop = .75 ) {
   #INPUT:
   #id_list    : a patient IDs list that is unique
@@ -65,12 +68,20 @@ divide_into_train_test_sets <- function(id_pos, train_prop = .75 ) {
   return(idlist)
 }
 
+# logit
+logit <- function(x) {
+  log(x) - log( 1-x + .Machine$double.eps)
+}
+
 ```
 
 ## load the features
 ```{r}
 tic()
 features <- readRDS('features.rds')
+toc()
+tic()
+feature3 <- readRDS('feature3.rds')
 toc()
 ```
 
@@ -99,15 +110,26 @@ toc()
 # the test set
 tic()
 t <- 2
+# data_[[t]] <- rbind(subset( features[[2]], matched_patient_id %in% idlist[[t]]) , #pos
+#                     subset( features[[1]], matched_patient_id %in% idlist[[t]]) ) #neg 200
+#                     #subset( features[[3]], matched_patient_id %in% idlist[[t]]) ) #neg 653
 data_[[t]] <- rbind(subset( features[[2]], matched_patient_id %in% idlist[[t]]) , #pos
-                    subset( features[[1]], matched_patient_id %in% idlist[[t]]) ) #neg 200
-                    #subset( features[[3]], matched_patient_id %in% idlist[[t]]) ) #neg 653
+                    subset( features[[1]], matched_patient_id %in% idlist[[t]]) , #neg 200
+                    feature3 ) #neg 653
 toc()
 
-dim(features[[1]])
-dim(features[[2]])
-dim(data_[[2]])
-dim(data_[[1]])
+# check that all samples are used
+res_ <- rbind(dim(features[[1]]), dim(features[[2]]),dim(feature3) )
+sum(res_[,1])
+
+res_ <- rbind( dim(data_[[2]]), dim(data_[[1]]) )
+sum(res_[,1])
+
+nrow(feature3)/653
+```
+## Clear the memory
+```{r}
+rm(features, feature3)
 
 ```
 
@@ -115,8 +137,11 @@ dim(data_[[1]])
 XGBoost with default parameters
 
 ```{r model}
-#checking
-sum(data_[[1]]$label)
+#checking number of samples
+table(data_[[1]]$label)
+table(data_[[2]]$label)
+
+# check dimension
 dim(data_[[1]] %>% select(-patient_id, -matched_patient_id, -ends_with("_DIFF")))
 dim(data_[[1]])
 
@@ -126,26 +151,47 @@ test_mlr <- makeClassifTask(data=data_[[2]] %>% select(-patient_id, -matched_pat
 xgb_lrn <- makeLearner(cl = "classif.xgboost", predict.type = "prob")
 model <- train(learner = xgb_lrn, task = train_mlr)
 
-
-```
-
-## Apply model to data
-```{r apply}
+# Apply model to data
+tic()
 pred <- predict(object = model, task = test_mlr)
+toc()
 head(pred$data)
 tail(pred$data)
 
+# Check the distribution
+res_ <- tibble ( logit = logit(pred$data$prob.1), label = data_[[2]]$label )
 
-```
-
-## Plot PR curve
-```{r prcurve}
-install.packages('PRROC')
-library(PRROC)
-
+# Plot PR curve
 pr1 <- pr.curve(scores.class0 = pred$data$prob.1, 
                 weights.class0 = (as.numeric(pred$data$truth) - 1), 
                 curve = TRUE)
 plot(pr1)
+write_csv(as.data.frame(pr1$curve), 'xgboost.csv')
+
+```
+
+```{r}
+
+data__ <- as.data.frame( sapply(data_[[1]], as.double) )
+test_ <- as.data.frame( sapply(data__, mean) )
+
+colnames_ <- colnames(data_[[1]])
+selected_vars <- colnames_[! is.na(test_$`sapply(data__, mean)`)]
+
+
+train_lr <- makeClassifTask(data=data_[[1]] %>% select(one_of(selected_vars), -matched_patient_id), target="label", positive=1)
+
+test_lr <- makeClassifTask(data=data_[[2]] %>% select(one_of(selected_vars), -matched_patient_id), target="label", positive=1)
+
+lr_lrn <- makeLearner(cl = "classif.logreg", predict.type = "prob")
+lr_model <- train(learner = lr_lrn, task = train_lr)
+
+
+pred <- predict(object = model, task = test_mlr)
+pr1 <- pr.curve(scores.class0 = pred$data$prob.1, 
+                weights.class0 = (as.numeric(pred$data$truth) - 1), 
+                curve = TRUE)
+plot(pr1)
+write_csv(as.data.frame(pr1$curve), 'xgboost.csv')
 
 ```
