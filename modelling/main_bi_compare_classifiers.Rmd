@@ -133,8 +133,8 @@ rm(features, feature3)
 
 ```
 
-## Train a model
-XGBoost with default parameters
+## xgboost without the DIFF features
+XGBoost with the default parameters
 
 ```{r model}
 #checking number of samples
@@ -155,8 +155,8 @@ model <- train(learner = xgb_lrn, task = train_mlr)
 tic()
 pred <- predict(object = model, task = test_mlr)
 toc()
-head(pred$data)
-tail(pred$data)
+#head(pred$data)
+#tail(pred$data)
 
 # Check the distribution
 res_ <- tibble ( logit = logit(pred$data$prob.1), label = data_[[2]]$label )
@@ -169,9 +169,48 @@ pr1 <- pr.curve(scores.class0 = pred$data$prob.1,
                 weights.class0 = (as.numeric(pred$data$truth) - 1), 
                 curve = TRUE)
 plot(pr1)
+write_csv(as.data.frame(pr1$curve), 'xgboost_full.csv')
+
+```
+## xgboost with the DIFF features
+
+and with the default parameters
+
+```{r model}
+
+# check dimension
+dim(data_[[1]] %>% select(-patient_id, -matched_patient_id))
+dim(data_[[1]])
+
+train_mlr <- makeClassifTask(data=data_[[1]] %>% select(-patient_id, -matched_patient_id), target="label", positive=1)
+test_mlr <- makeClassifTask(data=data_[[2]] %>% select(-patient_id, -matched_patient_id), target="label", positive=1)
+
+xgb_lrn <- makeLearner(cl = "classif.xgboost", predict.type = "prob")
+model_DIFF <- train(learner = xgb_lrn, task = train_mlr)
+
+# Apply model to data
+tic()
+pred_DIFF <- predict(object = model_DIFF, task = test_mlr)
+toc()
+head(pred$data)
+tail(pred$data)
+
+# Check the distribution
+res_ <- tibble ( logit = logit(pred_DIFF$data$prob.1), label = data_[[2]]$label )
+
+ggplot(res_, aes(res_$logit, col=label, fill=label)) + 
+    geom_density(alpha=.5) 
+
+# Plot PR curve
+pr1 <- pr.curve(scores.class0 = pred_DIFF$data$prob.1, 
+                weights.class0 = (as.numeric(pred$data$truth) - 1), 
+                curve = TRUE)
+plot(pr1)
 write_csv(as.data.frame(pr1$curve), 'xgboost.csv')
 
 ```
+
+##
 
 ```{r}
 

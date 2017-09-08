@@ -33,5 +33,6 @@ install.packages("knitr")
 install.packages("xgboost")
 install.packages("parallelMap")
 install.packages('PRROC')
+install.packages('tictoc')
 
 ```
