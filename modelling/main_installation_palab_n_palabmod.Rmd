@@ -34,11 +34,14 @@ install.packages("xgboost")
 install.packages("parallelMap")
 install.packages('PRROC')
 install.packages('tictoc')
+<<<<<<< HEAD
 install.packages("zoom")
 install.packages("pander")
 install.packages("ranger")
 install.packages("mboost")
 install.packages("glmnet")
 
+=======
+>>>>>>> 0cb536bb2ed71a681432c26a86d49432e7529d13
 
 ```

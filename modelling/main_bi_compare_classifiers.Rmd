@@ -238,9 +238,14 @@ readr::write_rds(res, file.path(output_folder, "all_results.rds"))
 
 ```
 
+<<<<<<< HEAD
 
 ## Train for xgboost
 XGBoost with default parameters
+=======
+## xgboost without the DIFF features
+XGBoost with the default parameters
+>>>>>>> 0cb536bb2ed71a681432c26a86d49432e7529d13
 
 ```{r model}
 #checking number of samples
@@ -273,7 +278,16 @@ xgboost_pred <- function(mytrain__, mytest__) {
 ```
 # version 1 xgboost
 
+<<<<<<< HEAD
 ```{r}
+=======
+# Apply model to data
+tic()
+pred <- predict(object = model, task = test_mlr)
+toc()
+#head(pred$data)
+#tail(pred$data)
+>>>>>>> 0cb536bb2ed71a681432c26a86d49432e7529d13
 
 mytrain__ <- data_[[1]] %>% select(-patient_id, -matched_patient_id, 
                                       -one_of(c("LOOKBACK_DAYS")),
@@ -369,6 +383,7 @@ pr2 <- pr.curve(scores.class0 = pred2$data$prob.1,
                 weights.class0 = (as.numeric(pred2$data$truth) - 1), 
                 curve = TRUE)
 plot(pr1)
+<<<<<<< HEAD
 plot(pr2)
 
 ```
@@ -383,6 +398,51 @@ ggplot(res_, aes(res_$logit, col=label, fill=label)) +
 ```
 
 ## Logistic regression
+=======
+write_csv(as.data.frame(pr1$curve), 'xgboost_full.csv')
+
+```
+## xgboost with the DIFF features
+
+and with the default parameters
+
+```{r model}
+
+# check dimension
+dim(data_[[1]] %>% select(-patient_id, -matched_patient_id))
+dim(data_[[1]])
+
+train_mlr <- makeClassifTask(data=data_[[1]] %>% select(-patient_id, -matched_patient_id), target="label", positive=1)
+test_mlr <- makeClassifTask(data=data_[[2]] %>% select(-patient_id, -matched_patient_id), target="label", positive=1)
+
+xgb_lrn <- makeLearner(cl = "classif.xgboost", predict.type = "prob")
+model_DIFF <- train(learner = xgb_lrn, task = train_mlr)
+
+# Apply model to data
+tic()
+pred_DIFF <- predict(object = model_DIFF, task = test_mlr)
+toc()
+head(pred$data)
+tail(pred$data)
+
+# Check the distribution
+res_ <- tibble ( logit = logit(pred_DIFF$data$prob.1), label = data_[[2]]$label )
+
+ggplot(res_, aes(res_$logit, col=label, fill=label)) + 
+    geom_density(alpha=.5) 
+
+# Plot PR curve
+pr1 <- pr.curve(scores.class0 = pred_DIFF$data$prob.1, 
+                weights.class0 = (as.numeric(pred$data$truth) - 1), 
+                curve = TRUE)
+plot(pr1)
+write_csv(as.data.frame(pr1$curve), 'xgboost.csv')
+
+```
+
+##
+
+>>>>>>> 0cb536bb2ed71a681432c26a86d49432e7529d13
 ```{r}
 
 test__ <- as.data.frame( sapply(data_[[1]], as.double) )
