@@ -27,10 +27,13 @@ library(ggplot2)
 library(tidyverse)
 library(stringr)
 library(lubridate)
+library(xgboost)
 library(mlr)
 library(tictoc)
 library(PRROC)
-
+library(parallel)
+library(ranger)
+library(parallelMap)
 ```
 
 ## Start with repeatability in mind
@@ -73,6 +76,16 @@ logit <- function(x) {
   log(x) - log( 1-x + .Machine$double.eps)
 }
 
+# This function post processes the predicted output so we can remove the 653 negative patients
+
+chomp_pred <- function(pred, last_n_rows_to_remove) {
+  
+  n_ <- last_n_rows_to_remove #n_ <- nrow(feature3)
+  pred2 <- pred
+  nrow_ <- nrow(pred2$data)
+  pred2$data<-pred2$data[1:(nrow_-n_),]
+  return(pred2)
+}
 ```
 
 ## load the features
@@ -132,8 +145,101 @@ nrow(feature3)/653
 rm(features, feature3)
 
 ```
+## Try random forest
+```{r}
+mytrain__ <- data_[[1]] %>% select(-patient_id, -matched_patient_id, 
+                                      -one_of(c("LOOKBACK_DAYS")),
+                                      -ends_with("_DIFF"), -starts_with("LVL1"), -starts_with("LVL2"))
+mytest__ <- data_[[2]] %>% select(-patient_id, -matched_patient_id, 
+                                      -one_of(c("LOOKBACK_DAYS")),
+                                      -ends_with("_DIFF"), -starts_with("LVL1"), -starts_with("LVL2"))
 
-## Train a model
+mydata__ <- rbind(mytrain__, mytest__)
+dim(mydata__)
+mydata__$label <- as.factor(mydata__$label)
+#sapply(mydata__, class )
+
+dataset <- makeClassifTask(id="BI", data=mydata__, target="label", positive=1)
+
+utils_get_class_freqs(dataset)
+
+# Important variables that will make it to the result file
+random_seed <- 123
+recall_thrs <- 10
+random_search_iter <- 50L
+set.seed(random_seed, "L'Ecuyer")
+
+# Define output folder and create it - if it doesn't exist
+output_folder = "rf"
+utils_create_output_folder(output_folder)
+
+# ------------------------------------------------------------------------------
+# Setup modelling
+# ------------------------------------------------------------------------------
+
+# Define weights as the inverse class frequency
+target_vector = getTaskTargets(dataset)
+target_tab = as.numeric(table(target_vector))
+iw = 1/target_tab[target_vector]
+
+# Define random Forest, we use the fastes available implementation see:
+# https://arxiv.org/pdf/1508.04409.pdf
+lrn <- makeLearner("classif.ranger", predict.type="prob")
+
+# Cheaper than OOB/permutation estimation of feature importance
+lrn <- setHyperPars(lrn, importance="impurity")
+
+# Wrap our learner so it will randomly downsample the majority class
+lrn <- makeUndersampleWrapper(lrn)
+
+# Define range of mtry we will search over
+features_n <- sum(dataset$task.desc$n.feat)
+mtry_default <- round(sqrt(features_n))
+# +/-25% from the default value
+mtry_range <- .25
+mtry_lower <- max(1, round(mtry_default * (1 - mtry_range)))
+mtry_upper <- min(features_n, round(mtry_default * (1 + mtry_range)))
+
+# A lot of good advice from here: https://goo.gl/avkcBV
+ps <- makeParamSet(
+  makeIntegerParam("num.trees", lower=100L, upper=2000L),
+  makeIntegerParam("mtry", lower=mtry_lower, upper=mtry_upper),
+  # this depends on the dataset and the size of the positive class
+  makeIntegerParam("min.node.size", lower=100, upper=300),
+  # add downsampling ratio to the hyper-param grid
+  makeNumericParam("usw.rate", lower=.5, upper=1)
+)
+
+# Define random search
+ctrl <- makeTuneControlRandom(maxit=random_search_iter, tune.threshold=F)
+
+# Define performane metrics - use at least 2, otherwise get_results won't work
+pr10 <- perf_make_pr_measure(recall_thrs, "pr10")
+m2 <- auc
+m3 <- setAggregation(pr10, test.sd)
+m4 <- setAggregation(auc, test.sd)
+# It's always the first in the list that's used to rank hyperparams in tuning
+m_all <- list(pr10, m2, m3, m4)
+
+
+# Define wrapped learner: this is mlR's way of doing nested CV on a learner
+lrn_wrap <- makeTuneWrapper(lrn, resampling=inner, par.set=ps, control=ctrl,
+                            show.info=F, measures=m_all)
+
+# ------------------------------------------------------------------------------
+# Training model with nested CV and save results
+# ------------------------------------------------------------------------------
+
+parallelStartSocket(detectCores(), level="mlr.tuneParams")
+res <- resample(lrn_wrap, dataset, resampling=outer, models=T, weights=iw,
+                extract=getTuneResult, show.info=F, measures=m_all)
+parallelStop()
+readr::write_rds(res, file.path(output_folder, "all_results.rds"))
+
+```
+
+
+## Train for xgboost
 XGBoost with default parameters
 
 ```{r model}
@@ -141,42 +247,146 @@ XGBoost with default parameters
 table(data_[[1]]$label)
 table(data_[[2]]$label)
 
-# check dimension
-dim(data_[[1]] %>% select(-patient_id, -matched_patient_id, -ends_with("_DIFF")))
-dim(data_[[1]])
+# Here's the xgboost prediction function
+xgboost_pred <- function(mytrain__, mytest__) {
+  tic()
+  
+  train_mlr <- makeClassifTask(data=mytrain__, target="label", positive=1)
+  test_mlr <- makeClassifTask(data=mytest__, target="label", positive=1)
+  
+  xgb_lrn <- makeLearner(cl = "classif.xgboost", predict.type = "prob")
+  model <- train(learner = xgb_lrn, task = train_mlr)
+  toc()
+  
+  tic()
+  # Apply model to data
+  pred <- predict(object = model, task = test_mlr)
+  
+  # Let's remove features3 data
+  nrow_feature3 <- 1399379 # nrow(feature3))
+  pred2 <- chomp_pred(pred, nrow_feature3)
 
-train_mlr <- makeClassifTask(data=data_[[1]] %>% select(-patient_id, -matched_patient_id, -ends_with("_DIFF")), target="label", positive=1)
-test_mlr <- makeClassifTask(data=data_[[2]] %>% select(-patient_id, -matched_patient_id, -ends_with("_DIFF")), target="label", positive=1)
-
-xgb_lrn <- makeLearner(cl = "classif.xgboost", predict.type = "prob")
-model <- train(learner = xgb_lrn, task = train_mlr)
-
-# Apply model to data
-tic()
-pred <- predict(object = model, task = test_mlr)
-toc()
-head(pred$data)
-tail(pred$data)
-
-# Check the distribution
-res_ <- tibble ( logit = logit(pred$data$prob.1), label = data_[[2]]$label )
-
-ggplot(res_, aes(res_$logit, col=label, fill=label)) + 
-    geom_density(alpha=.5) 
-
-# Plot PR curve
-pr1 <- pr.curve(scores.class0 = pred$data$prob.1, 
-                weights.class0 = (as.numeric(pred$data$truth) - 1), 
-                curve = TRUE)
-plot(pr1)
-write_csv(as.data.frame(pr1$curve), 'xgboost.csv')
+  toc()
+  return(list(pred = pred, pred2 = pred2, model = model, train_mlr = train_mlr, test_mlr = test_mlr, lrn = xgb_lrn))
+}
 
 ```
+# version 1 xgboost
 
 ```{r}
 
-data__ <- as.data.frame( sapply(data_[[1]], as.double) )
-test_ <- as.data.frame( sapply(data__, mean) )
+mytrain__ <- data_[[1]] %>% select(-patient_id, -matched_patient_id, 
+                                      -one_of(c("LOOKBACK_DAYS")),
+                                      -ends_with("_DIFF"), -starts_with("LVL1"), -starts_with("LVL2"))
+mytest__ <- data_[[2]] %>% select(-patient_id, -matched_patient_id, 
+                                      -one_of(c("LOOKBACK_DAYS")),
+                                      -ends_with("_DIFF"), -starts_with("LVL1"), -starts_with("LVL2"))
+#dim(data_[[1]]) dim(mytrain__)
+xgboost_ <- xgboost_pred(mytrain__, mytest__)
+  
+
+perf_plot_pr_curve(xgboost_$pred, bin_num = 1000, agg_func = mean)
+
+pr <- perf_binned_perf_curve(xgboost_$pred, x_metric="rec", y_metric="prec", bin_num=20)
+pander::pandoc.table(pr$curve)
+
+write_csv(as.data.frame(pr$curve), 'xgboost_v1_noLVL1n2.csv')
+
+
+```
+
+## Variable importance
+```{r varimp}
+simple_imp <- xgb.importance(feature_names = xgboost_$model$features, 
+                            model = xgboost_$model$learner.model)
+
+split_imp <- xgb.importance(feature_names = xgboost_$model$features,
+                            model = xgboost_$model$learner.model,
+                            data = xgboost_$train_mlr$env$data,
+                            label = (as.numeric(xgboost_$train_mlr$env$data$label) - 1)
+                            )
+
+split_imp <- xgb.importance(feature_names = xgboost_$model$features,
+                            model = xgboost_$model$learner.model,
+                            data = xgboost_$train$env$data,
+                            label = (as.numeric(xgboost_$train$env$data$label) - 1)
+                            )
+head(simple_imp)
+head(split_imp)
+```
+
+
+# version 2 xgboost
+
+```{r}
+
+mytrain__ <- data_[[1]] %>% select(-patient_id, -matched_patient_id, 
+                                      -one_of(c("LOOKBACK_DAYS")),
+                                      -ends_with("_DIFF"))
+mytest__ <- data_[[2]] %>% select(-patient_id, -matched_patient_id, 
+                                      -one_of(c("LOOKBACK_DAYS")),
+                                      -ends_with("_DIFF"))
+xgboost2_ <- xgboost_pred(mytrain__, mytest__)
+  
+
+perf_plot_pr_curve(xgboost2_$pred, bin_num = 1000, agg_func = mean)
+
+pr <- perf_binned_perf_curve(xgboost2_$pred, x_metric="rec", y_metric="prec", bin_num=20)
+pander::pandoc.table(pr$curve)
+
+write_csv(as.data.frame(pr$curve), 'xgboost_v2_wLVL1n2.csv')
+
+```
+# version 3 xgboost
+
+```{r}
+
+mytrain__ <- data_[[1]] %>% select(-patient_id, -matched_patient_id, 
+                                      -one_of(c("LOOKBACK_DAYS")))
+
+mytest__ <- data_[[2]] %>% select(-patient_id, -matched_patient_id, 
+                                      -one_of(c("LOOKBACK_DAYS")))
+
+xgboost3_ <- xgboost_pred(mytrain__, mytest__)
+  
+
+perf_plot_pr_curve(xgboost3_$pred2, bin_num = 1000, agg_func = mean)
+
+pr <- perf_binned_perf_curve(xgboost3_$pred2, x_metric="rec", y_metric="prec", bin_num=20)
+pander::pandoc.table(pr$curve)
+
+write_csv(as.data.frame(pr$curve), 'xgboost_v3_wDIFFnLVL1n2.csv')
+
+```
+
+
+## Alternative way of plotting the PR curve
+```{r}
+pr1 <- pr.curve(scores.class0 = pred$data$prob.1, 
+                weights.class0 = (as.numeric(pred$data$truth) - 1), 
+                curve = TRUE)
+pr2 <- pr.curve(scores.class0 = pred2$data$prob.1, 
+                weights.class0 = (as.numeric(pred2$data$truth) - 1), 
+                curve = TRUE)
+plot(pr1)
+plot(pr2)
+
+```
+## Checking the distribution
+```{r}
+res_ <- tibble ( logit = logit(pred$data$prob.1), label = data_[[2]]$label )
+ggplot(res_, aes(res_$logit, col=label, fill=label)) + 
+    geom_density(alpha=.5) 
+
+
+
+```
+
+## Logistic regression
+```{r}
+
+test__ <- as.data.frame( sapply(data_[[1]], as.double) )
+test_ <- as.data.frame( sapply(test__, mean) )
 
 colnames_ <- colnames(data_[[1]])
 selected_vars <- colnames_[! is.na(test_$`sapply(data__, mean)`)]
@@ -195,6 +405,6 @@ pr1 <- pr.curve(scores.class0 = pred$data$prob.1,
                 weights.class0 = (as.numeric(pred$data$truth) - 1), 
                 curve = TRUE)
 plot(pr1)
-write_csv(as.data.frame(pr1$curve), 'xgboost.csv')
+write_csv(as.data.frame(pr1$curve), 'logreg.csv')
 
 ```

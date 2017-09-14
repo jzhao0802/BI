@@ -1,0 +1,281 @@
+---
+title: "Logistic Regression"
+author: "Norman Poh - PA Team, London"
+date: '`r Sys.Date()`'
+output:
+  # if you want a pdf as an output, just change html_vignette to pdf_document.
+  html_document:
+    fig_width: 7
+    toc: yes
+    toc_depth: 3
+---
+&nbsp;
+
+```{r eval=FALSE}
+# ------------------------------------------------------------------------------
+#
+#                   Simple logistic regression
+#
+# ------------------------------------------------------------------------------
+
+library(mlr)
+library(parallel)
+library(parallelMap)
+library(ggplot2)
+library(palabmod)
+
+# ------------------------------------------------------------------------------
+# remove the variables
+# ------------------------------------------------------------------------------
+exclude_list = read_csv('vars_to_exclude_list1.csv')
+
+
+# ------------------------------------------------------------------------------
+# setup 
+# ------------------------------------------------------------------------------
+
+matching = FALSE
+
+
+mytrain__ = data_[[1]] %>% select(-patient_id, -matched_patient_id, 
+                                      -one_of("LOOKBACK_DAYS"),
+                                      -matches(paste(exclude_list$variable, collapse="|")),
+                                      -ends_with("_DIFF"), -starts_with("LVL1"), -starts_with("LVL2"))
+
+mytest__ <- data_[[2]] %>% select(-patient_id, -matched_patient_id, 
+                                      -one_of("LOOKBACK_DAYS"),
+                                      -matches(paste(exclude_list$variable, collapse="|")),
+                                      -ends_with("_DIFF"), -starts_with("LVL1"), -starts_with("LVL2"))
+
+rm(mydata__) 
+
+# replace NA with zero everywhere
+replace_NA_with_zero <- function (mydata__) {
+  mydata__[is.na(mydata__)] <- 0
+  return(mydata__)
+}
+
+
+
+# Setup dataset - for imputing missing values have a look at the vignette
+dataset <- makeClassifTask(id="BI", data=replace_NA_with_zero(mytrain__), target="label", positive=1)
+dataset_test <- makeClassifTask(id="BI", data=replace_NA_with_zero(mytest__), target="label", positive=1)
+utils_get_class_freqs(dataset)
+utils_get_class_freqs(dataset_test)
+
+dataset
+
+# Important variables that will make it to the result file
+random_seed <- 123
+recall_thrs <- 10
+set.seed(random_seed, "L'Ecuyer")
+
+# Define output folder and create it - if it doesn't exist
+output_folder = "lr"
+utils_create_output_folder(output_folder)
+
+# Define weights as the inverse class frequency
+target_vector = getTaskTargets(dataset)
+target_tab = as.numeric(table(target_vector))
+iw = 1/target_tab[target_vector]
+
+# Define logistic regression learner
+lr <- makeLearner("classif.logreg", predict.type="prob")
+#lr = makeWeightedClassesWrapper(lr, wcw.weight = iw)
+
+tic()
+lr.fit <- train(lr, dataset)
+toc()
+
+tic()
+pred <- predict(lr.fit, dataset_test)
+toc()
+
+saveRDS(lr.fit, file.path(output_folder, "lr.fit.rds"))
+
+pr <- perf_binned_perf_curve(pred, x_metric="rec", y_metric="prec",
+                             bin_num=20, agg_func = mean)
+readr::write_csv(pr$curve, file.path(output_folder, "binned_pr.csv"))
+
+
+```
+# Try a different learner
+
+```{r}
+lr <- makeLearner("classif.cforest", predict.type="prob")
+#lr = makeWeightedClassesWrapper(lr, wcw.weight = iw)
+
+tic()
+lr.fit <- train(lr, dataset)
+toc()
+
+tic()
+pred <- predict(lr.fit, dataset_test)
+toc()
+
+saveRDS(lr.fit, file.path(output_folder, "lr.fit.rds"))
+
+pr <- perf_binned_perf_curve(pred, x_metric="rec", y_metric="prec",
+                             bin_num=20, agg_func = mean)
+readr::write_csv(pr$curve, file.path(output_folder, "binned_pr.csv"))
+
+```
+
+## Stop here
+
+
+
+
+```{r}
+# ------------------------------------------------------------------------------
+# Plot PR curve and save binned version as .csv file
+# ------------------------------------------------------------------------------
+
+perf_plot_pr_curve(pred)
+
+# Find out at which threshold we maximise a given perf metric - PR10 here
+#tuneThreshold(pred, measure=pr10)
+
+
+#
+plot(pr$curve$rec_binned, pr$curve$prec)
+# ------------------------------------------------------------------------------
+# Plot any performance metric for each model as a function of threshold
+# ------------------------------------------------------------------------------
+
+# Define performance metrics we want to plot, ppv=precision, tpr=recall
+perf_to_plot <- list(fpr, tpr, ppv)
+
+# Generate the data for the plots, do aggregate=T if you want the mean
+thr_perf <- generateThreshVsPerfData(pred, perf_to_plot, aggregate=F)
+plotThreshVsPerf(thr_perf)
+
+
+
+```
+
+```{r}
+
+
+# ------------------------------------------------------------------------------
+# Setup modelling
+# ------------------------------------------------------------------------------
+
+
+
+
+
+
+#for making predictions
+
+
+
+
+# Define outer resampling strategies: if matched, use ncv
+outer <- makeResampleDesc("CV", iters=3, stratify=T, predict = "both")
+
+# If we have matching then stratification is done implicitely through matching
+if (matching){
+  outer$stratify <- FALSE
+}
+
+# Define performane metrics - use at least 2, otherwise get_results won't work
+pr10 <- perf_make_pr_measure(recall_thrs, "pr10")
+m2 <- auc
+m3 <- setAggregation(pr10, test.sd)
+m4 <- setAggregation(auc, test.sd)
+# It's always the first in the list that's used to rank hyperparams in tuning
+m_all <- list(pr10, m2, m3, m4)
+
+# ------------------------------------------------------------------------------
+# Training model with CV and save results
+# ------------------------------------------------------------------------------
+
+parallelStartSocket(detectCores(), level="mlr.tuneParams")
+tic()
+res <- resample(lrn, dataset, resampling=outer, models=T, show.info=F,
+                weights=iw, measures=m_all)
+toc()
+parallelStop()
+
+readr::write_rds(res, file.path(output_folder, "all_results.rds"))
+
+# ------------------------------------------------------------------------------
+# Save results summary and predictions
+# ------------------------------------------------------------------------------
+
+extra <- list("Matching"=as.character(matching),
+              "NumSamples"=dataset$task.desc$size,
+              "NumFeatures"=sum(dataset$task.desc$n.feat),
+              "ElapsedTime(secs)"=res$runtime,
+              "RandomSeed"=random_seed,
+              "Recall"=recall_thrs)
+
+results <- results_non_nested_results(res, extra=extra, write_csv=T,
+                                      output_folder=output_folder,
+                                      output_csv="results.csv")
+
+# Get predictions for all samples, and for only outer fold ones
+all_preds <- as.data.frame(res$pred)
+outer_test_preds <-  results_outer_predictions(res, ids=ids$ID)
+
+# ------------------------------------------------------------------------------
+# Plot PR curve and save binned version as .csv file
+# ------------------------------------------------------------------------------
+
+# Note this PR curve is from 3 different models
+perf_plot_pr_curve(res$pred)
+
+# Find out at which threshold we maximise a given perf metric - PR10 here
+tuneThreshold(pred=res$pred, measure=pr10)
+
+pr <- perf_binned_perf_curve(res$pred, x_metric="rec", y_metric="prec",
+                             bin_num=20, agg_func = mean)
+readr::write_csv(pr$curve, file.path(output_folder, "binned_pr.csv"))
+
+# ------------------------------------------------------------------------------
+# Plot any performance metric for each model as a function of threshold
+# ------------------------------------------------------------------------------
+
+# Define performance metrics we want to plot, ppv=precision, tpr=recall
+perf_to_plot <- list(fpr, tpr, ppv)
+
+# Generate the data for the plots, do aggregate=T if you want the mean
+thr_perf <- generateThreshVsPerfData(res$pred, perf_to_plot, aggregate=F)
+plotThreshVsPerf(thr_perf)
+
+# ------------------------------------------------------------------------------
+# Get models from outer folds, examine and plot and predict with one of them
+# ------------------------------------------------------------------------------
+
+outer_models <- results_models(res)
+
+# Print model output for the first outer fold model
+summary(outer_models[[1]])
+
+# Print odds ratios and CIs
+results_odds_ratios(outer_models[[1]])
+
+# Plot model (residuals, fitted, leverage)
+plot(outer_models[[1]])
+
+# This is how to predict with the first model
+predict(res$models[[1]], dataset)
+
+# ------------------------------------------------------------------------------
+# Partial dependence plots
+# ------------------------------------------------------------------------------
+
+# Plot median of the curve of each patient for 1st outer model
+feature_names <- getTaskFeatureNames(dataset)
+par_dep_data <- generatePartialDependenceData(res$models[[1]], dataset,
+                                              feature_names, fun=median)
+plotPartialDependence(par_dep_data)
+
+# Fit linear model to each partial dependence plot to summarise them in a table
+results_par_dep_plot_slopes(par_dep_data)
+
+# Plot them to easily see the influence of each variable, p-vals are on the bars
+plotting_par_dep_plot_slopes(par_dep_data, decimal=5)
+
+```

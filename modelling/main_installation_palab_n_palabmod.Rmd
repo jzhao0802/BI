@@ -23,7 +23,7 @@ install.packages("rlang")
 install.packages( c('mlr', 'BBmisc', 'ROCR', 'tidyverse', 'plotmo', 'parallelMap', 'rattle', 'rpart.plot', 'fastcluster', 'yakmoR', 'fields', 'hash') )
 install.packages("K:/Git/palab/palab-2017-05-15.tar.gz", repos = NULL)
 install.packages("K:/Git/palabmod/builds/palabmod_1.0.2.tar.gz", repos = NULL)
-
+install.packages("tidyverse")
 install.packages("knitr")
 
 ```
@@ -33,5 +33,12 @@ install.packages("knitr")
 install.packages("xgboost")
 install.packages("parallelMap")
 install.packages('PRROC')
+install.packages('tictoc')
+install.packages("zoom")
+install.packages("pander")
+install.packages("ranger")
+install.packages("mboost")
+install.packages("glmnet")
+
 
 ```
